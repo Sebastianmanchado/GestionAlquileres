@@ -7,6 +7,11 @@ spring:
     password: ${SGA_DB_PASSWORD}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   flyway:
+    # Base compartida con MatrizPonderada (GIA_DB_PoC): ya tiene tablas ajenas.
+    # baseline-version=0 evita que Flyway saltee V1__schema; tabla propia evita historial corrupto.
+    table: flyway_schema_history_sga
+    baseline-on-migrate: true
+    baseline-version: 0
     # POC: schema + seed de demo. Cuando haya datos reales, dejar solo classpath:db/migration.
     locations: classpath:db/migration,classpath:db/seed
 
