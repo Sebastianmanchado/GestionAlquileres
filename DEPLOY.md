@@ -135,3 +135,15 @@ JAVA_TOOL_OPTIONS=-Xmx350m
 ```
 VITE_API_URL=https://sga-alquileres-api.onrender.com/api
 ```
+
+---
+
+## Troubleshooting
+
+### Flyway: `Invalid object name 'region'`
+
+La base Somee compartida (`GIA_DB_PoC`) ya tiene tablas de MatrizPonderada. Flyway con `baseline-on-migrate` (default v1) saltaba `V1__schema` y corría solo el seed.
+
+**Fix en código (perfil `cloud`):** `baseline-version: 0` + tabla `flyway_schema_history_sga`.
+
+Redeploy en Render con el último `main`. Si sigue fallando, en Somee revisá `SELECT * FROM flyway_schema_history_sga` y borrá filas con `success = 0` antes de reintentar.
