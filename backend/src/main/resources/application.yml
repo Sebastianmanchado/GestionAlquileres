@@ -1,5 +1,6 @@
 server:
-  port: ${SERVER_PORT:8080}
+  # Render inyecta PORT; local usa SERVER_PORT o 8080.
+  port: ${PORT:${SERVER_PORT:8080}}
 
 spring:
   application:

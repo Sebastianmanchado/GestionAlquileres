@@ -12,8 +12,8 @@ spring:
 
 sga:
   cors:
-    # Ejemplo: https://tu-app.vercel.app
-    allowed-origins: ${SGA_CORS_ORIGINS}
+    # Wildcard cubre producción y previews de Vercel. Podés agregar más orígenes separados por coma.
+    allowed-origins: ${SGA_CORS_ORIGINS:https://*.vercel.app}
   storage:
     root: ${SGA_STORAGE_ROOT:/tmp/sga-storage}
 

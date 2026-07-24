@@ -1,0 +1,24 @@
+# Blueprint Render: https://dashboard.render.com/blueprints
+# Conectar repo GitHub → New Blueprint → seleccionar este archivo.
+services:
+  - type: web
+    name: sga-alquileres-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /api/meta
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: cloud
+      - key: JAVA_TOOL_OPTIONS
+        value: -Xmx350m
+      - key: SGA_DB_URL
+        sync: false
+      - key: SGA_DB_USER
+        sync: false
+      - key: SGA_DB_PASSWORD
+        sync: false
+      - key: SGA_CORS_ORIGINS
+        value: https://*.vercel.app

@@ -54,3 +54,7 @@ Header `X-Role`: `ANALISTA` | `SUPERVISOR` | `AUDITOR`. En la UI se cambia desde
 backend/     Spring Boot API + Flyway (schema + seed)
 frontend/    React SPA (Vite)
 ```
+
+## Deploy cloud
+
+Guía paso a paso (Somee + Render + Vercel): **[DEPLOY.md](./DEPLOY.md)**
