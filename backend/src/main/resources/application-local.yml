@@ -1,0 +1,18 @@
+# Perfil LOCAL: Docker MSSQL + seed de ejemplo + proxy Vite.
+spring:
+  datasource:
+    url: ${SGA_DB_URL:jdbc:sqlserver://localhost:1433;databaseName=sga;encrypt=true;trustServerCertificate=true}
+    username: ${SGA_DB_USER:sa}
+    password: ${SGA_DB_PASSWORD:Your_strong_Password123}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+  flyway:
+    # Schema + datos de demo.
+    locations: classpath:db/migration,classpath:db/seed
+
+sga:
+  cors:
+    allowed-origins: ${SGA_CORS_ORIGINS:http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173}
+
+logging:
+  level:
+    com.correoargentino.sga: debug

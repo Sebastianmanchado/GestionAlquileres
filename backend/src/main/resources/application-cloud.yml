@@ -1,0 +1,23 @@
+# Perfil CLOUD: Somee / Render / etc.
+# Obligatorias: SGA_DB_URL, SGA_DB_USER, SGA_DB_PASSWORD, SGA_CORS_ORIGINS
+spring:
+  datasource:
+    url: ${SGA_DB_URL}
+    username: ${SGA_DB_USER}
+    password: ${SGA_DB_PASSWORD}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+  flyway:
+    # POC: schema + seed de demo. Cuando haya datos reales, dejar solo classpath:db/migration.
+    locations: classpath:db/migration,classpath:db/seed
+
+sga:
+  cors:
+    # Ejemplo: https://tu-app.vercel.app
+    allowed-origins: ${SGA_CORS_ORIGINS}
+  storage:
+    root: ${SGA_STORAGE_ROOT:/tmp/sga-storage}
+
+logging:
+  level:
+    com.correoargentino.sga: info
+    org.flywaydb: info

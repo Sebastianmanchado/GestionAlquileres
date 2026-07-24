@@ -1,0 +1,34 @@
+# Backend
+backend/target/
+backend/storage/
+backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env.local
+frontend/.env.*.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Secrets / local overrides
+.env
+.env.local
+*.pem
+*.p12
+
+# Tools / caches
+.tools/
+**/hs_err_pid*
