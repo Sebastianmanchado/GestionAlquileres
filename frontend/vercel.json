@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://sga-alquileres-api.onrender.com/api/:path*"
+      "destination": "https://gestionalquileres-3.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

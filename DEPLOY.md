@@ -53,7 +53,7 @@ cd backend && mvn spring-boot:run
 | `SGA_DB_PASSWORD` | misma password que MatrizPonderada / Somee |
 
 5. **Create Blueprint** y esperá el build Docker (~5–10 min la primera vez).
-6. URL del servicio: `https://sga-alquileres-api.onrender.com`
+6. URL del servicio: `https://gestionalquileres-3.onrender.com`
 
 Si Render te pide renombrar el servicio, actualizá la URL en `frontend/vercel.json` (rewrite `/api`).
 
@@ -77,10 +77,10 @@ Si Render te pide renombrar el servicio, actualizá la URL en `frontend/vercel.j
 ### Verificar backend
 
 ```bash
-curl https://sga-alquileres-api.onrender.com/api/meta
+curl https://gestionalquileres-3.onrender.com/api/meta
 ```
 
-Swagger: `https://sga-alquileres-api.onrender.com/swagger`
+Swagger: `https://gestionalquileres-3.onrender.com/swagger`
 
 > El plan free de Render duerme tras ~15 min sin tráfico. El primer request puede tardar ~30–50 s.
 
@@ -95,7 +95,7 @@ Swagger: `https://sga-alquileres-api.onrender.com/swagger`
 | Modo | Vercel | Render |
 |------|--------|--------|
 | **A — Proxy** (recomendado) | Root = `frontend`. **No** setear `VITE_API_URL`. `vercel.json` reescribe `/api/*` → Render. | Solo password Somee. |
-| **B — Directo** | `VITE_API_URL=https://sga-alquileres-api.onrender.com/api` | `SGA_CORS_ORIGINS=https://*.vercel.app` (ya default) |
+| **B — Directo** | `VITE_API_URL=https://gestionalquileres-3.onrender.com/api` | `SGA_CORS_ORIGINS=https://*.vercel.app` (ya default) |
 
 4. **Deploy**
 
@@ -103,7 +103,7 @@ Swagger: `https://sga-alquileres-api.onrender.com/swagger`
 
 1. **Vercel → Environment Variables:** si existe `VITE_API_URL=http://localhost:8080`, borrala o corregila. Requiere **redeploy**.
 2. **Root Directory** debe ser `frontend`.
-3. Probá backend directo: `https://sga-alquileres-api.onrender.com/api/contracts` (puede tardar si estaba dormido).
+3. Probá backend directo: `https://gestionalquileres-3.onrender.com/api/contracts` (puede tardar si estaba dormido).
 4. En DevTools → Network: si falla CORS, usá modo A (proxy) sin `VITE_API_URL`.
 
 ---
@@ -133,7 +133,7 @@ JAVA_TOOL_OPTIONS=-Xmx350m
 ### Frontend (Vercel) — solo modo B
 
 ```
-VITE_API_URL=https://sga-alquileres-api.onrender.com/api
+VITE_API_URL=https://gestionalquileres-3.onrender.com/api
 ```
 
 ---
