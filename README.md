@@ -57,4 +57,6 @@ frontend/    React SPA (Vite)
 
 ## Deploy cloud
 
-Guía paso a paso (Somee + Render + Vercel): **[DEPLOY.md](./DEPLOY.md)**
+Guía paso a paso (Somee compartida con MatrizPonderada + Render + Vercel): **[DEPLOY.md](./DEPLOY.md)**
+
+Copiá `.env.example` → `.env` y completá `SGA_DB_PASSWORD` para probar contra Somee desde local con perfil `cloud`.

@@ -5,6 +5,9 @@ server:
 spring:
   application:
     name: sga-alquileres
+  # Carga opcional de .env en la raíz del repo (mismo patrón que MatrizPonderada).
+  config:
+    import: optional:file:./.env[.properties],optional:file:../.env[.properties]
   # Perfil activo: local (por defecto) | cloud. Se puede pisar con SPRING_PROFILES_ACTIVE.
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}

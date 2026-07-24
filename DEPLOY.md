@@ -1,34 +1,41 @@
 # Deploy cloud (Somee + Render + Vercel)
 
-Orden recomendado: **Somee → Render (backend) → Vercel (frontend)**.
+Orden recomendado: **Render (backend) → Vercel (frontend)**. La base Somee ya está configurada (misma que MatrizPonderada).
 
 Repo: https://github.com/Sebastianmanchado/GestionAlquileres
 
 ---
 
-## 1) Base de datos en Somee
+## 1) Base de datos Somee (ya configurada)
 
-1. Entrá a tu panel de Somee y abrí la base MSSQL.
-2. Anotá estos datos del connection string:
-   - **Host** (ej. `workstation.somee.com` o similar)
-   - **Database name**
-   - **User Id**
-   - **Password**
-3. Traducí a JDBC (formato que usa Spring):
+Misma instancia que **MatrizPonderada** (`MatrizPonderada/.env.example`):
 
-```
-jdbc:sqlserver://<HOST>:1433;databaseName=<DB>;encrypt=true;trustServerCertificate=true
-```
+| Campo | Valor |
+|-------|-------|
+| **Host** | `GIA_DB_PoC.mssql.somee.com` |
+| **Puerto** | `1433` |
+| **Base** | `GIA_DB_PoC` |
+| **Usuario** | `jppirra_SQLLogin_1` |
+| **Password** | La misma que usás en MatrizPonderada (`DATABASE_PASSWORD`) |
 
-Ejemplo:
+**JDBC (Spring):**
 
 ```
-jdbc:sqlserver://workstation.somee.com:1433;databaseName=sga_poc;encrypt=true;trustServerCertificate=true
+jdbc:sqlserver://GIA_DB_PoC.mssql.somee.com:1433;databaseName=GIA_DB_PoC;encrypt=true;trustServerCertificate=true;packetSize=4096
 ```
 
-4. Verificá que Somee permita **conexiones remotas** desde internet (suele estar habilitado en el plan gratuito).
+> SGA y MatrizPonderada comparten el **mismo catálogo** en Somee. Flyway crea tablas propias de alquileres (`contrato`, `inmueble`, etc.) sin pisar las de la matriz (`iniciativa`, `evaluacion`, etc.).
 
-Al primer arranque del backend, **Flyway crea el schema y carga el seed** automáticamente.
+Al primer arranque del backend en cloud, **Flyway crea el schema SGA y carga el seed** automáticamente.
+
+### Probar conexión desde local (opcional)
+
+```bash
+cp .env.example .env
+# Completar SGA_DB_PASSWORD con la misma pass de Somee
+# Descomentar o setear: SPRING_PROFILES_ACTIVE=cloud
+cd backend && mvn spring-boot:run
+```
 
 ---
 
@@ -38,111 +45,75 @@ Al primer arranque del backend, **Flyway crea el schema y carga el seed** autom�
 
 1. https://dashboard.render.com/ → **New** → **Blueprint**
 2. Conectá el repo `Sebastianmanchado/GestionAlquileres`
-3. Render detecta `render.yaml` en la raíz
-4. Cuando pida secretos, completá:
+3. Render detecta `render.yaml` (URL y usuario Somee ya vienen preconfigurados)
+4. Solo tenés que completar el secreto:
 
 | Variable | Valor |
 |----------|-------|
-| `SGA_DB_URL` | JDBC de Somee (paso 1) |
-| `SGA_DB_USER` | usuario Somee |
-| `SGA_DB_PASSWORD` | contraseña Somee |
-
-(`SPRING_PROFILES_ACTIVE`, `JAVA_TOOL_OPTIONS` y `SGA_CORS_ORIGINS` ya vienen en el blueprint.)
+| `SGA_DB_PASSWORD` | misma password que MatrizPonderada / Somee |
 
 5. **Create Blueprint** y esperá el build Docker (~5–10 min la primera vez).
-6. Copiá la URL pública, ej. `https://sga-alquileres-api.onrender.com`
+6. URL del servicio: `https://sga-alquileres-api.onrender.com`
+
+Si Render te pide renombrar el servicio, actualizá la URL en `frontend/vercel.json` (rewrite `/api`).
 
 ### Opción B — Manual
 
 1. **New** → **Web Service** → repo GitHub
 2. **Root Directory:** `backend`
-3. **Runtime:** Docker
-4. **Plan:** Free
-5. **Health Check Path:** `/api/meta`
-6. Variables de entorno (Environment):
+3. **Runtime:** Docker · **Plan:** Free
+4. **Health Check Path:** `/api/meta`
+5. Variables de entorno:
 
 | Variable | Valor |
 |----------|-------|
 | `SPRING_PROFILES_ACTIVE` | `cloud` |
 | `JAVA_TOOL_OPTIONS` | `-Xmx350m` |
-| `SGA_DB_URL` | JDBC Somee |
-| `SGA_DB_USER` | usuario Somee |
-| `SGA_DB_PASSWORD` | contraseña Somee |
+| `SGA_DB_URL` | JDBC de arriba |
+| `SGA_DB_USER` | `jppirra_SQLLogin_1` |
+| `SGA_DB_PASSWORD` | password Somee |
 | `SGA_CORS_ORIGINS` | `https://*.vercel.app` |
 
 ### Verificar backend
 
 ```bash
-curl https://<TU-SERVICIO>.onrender.com/api/meta
+curl https://sga-alquileres-api.onrender.com/api/meta
 ```
 
-Respuesta esperada: JSON con `"role":"ANALISTA"`, etc.
+Swagger: `https://sga-alquileres-api.onrender.com/swagger`
 
-Swagger: `https://<TU-SERVICIO>.onrender.com/swagger`
-
-> **Nota:** el plan free de Render duerme tras ~15 min sin tráfico. El primer request puede tardar ~30–50 s.
+> El plan free de Render duerme tras ~15 min sin tráfico. El primer request puede tardar ~30–50 s.
 
 ---
 
 ## 3) Frontend en Vercel (gratis)
 
 1. https://vercel.com/new → importá `Sebastianmanchado/GestionAlquileres`
-2. Configuración del proyecto:
+2. **Root Directory:** `frontend`
+3. Elegí **modo A o B**:
 
-| Campo | Valor |
-|-------|-------|
-| **Root Directory** | `frontend` |
-| **Framework Preset** | Vite |
-| **Build Command** | `npm run build` |
-| **Output Directory** | `dist` |
-
-3. **Environment Variables** (Production):
-
-| Variable | Valor |
-|----------|-------|
-| `VITE_API_URL` | `https://<TU-SERVICIO-RENDER>.onrender.com/api` |
-
-(sin barra final; incluir `/api`)
+| Modo | Vercel | Render |
+|------|--------|--------|
+| **A — Proxy** (recomendado) | Root = `frontend`. **No** setear `VITE_API_URL`. `vercel.json` reescribe `/api/*` → Render. | Solo password Somee. |
+| **B — Directo** | `VITE_API_URL=https://sga-alquileres-api.onrender.com/api` | `SGA_CORS_ORIGINS=https://*.vercel.app` (ya default) |
 
 4. **Deploy**
 
-5. Abrí la URL de Vercel (ej. `https://gestion-alquileres.vercel.app`)
+### Si el front carga pero no trae datos
 
-### CORS
-
-El backend ya acepta `https://*.vercel.app` por defecto en cloud. No hace falta tocar CORS salvo que uses otro dominio (GitHub Pages, dominio propio, etc.).
+1. **Vercel → Environment Variables:** si existe `VITE_API_URL=http://localhost:8080`, borrala o corregila. Requiere **redeploy**.
+2. **Root Directory** debe ser `frontend`.
+3. Probá backend directo: `https://sga-alquileres-api.onrender.com/api/contracts` (puede tardar si estaba dormido).
+4. En DevTools → Network: si falla CORS, usá modo A (proxy) sin `VITE_API_URL`.
 
 ---
 
 ## 4) Checklist post-deploy
 
-- [ ] Dashboard carga KPIs reales (no ceros en todo)
-- [ ] Listado muestra ~40 contratos
-- [ ] Cambiar rol en la barra superior recarga datos
-- [ ] Conciliación / facturas sin asignar responden
-- [ ] Swagger del backend accesible
-
----
-
-## Troubleshooting
-
-### Backend no arranca en Render
-
-- Revisá **Logs** en Render.
-- Errores comunes:
-  - `SGA_DB_URL` mal formada → revisá host, puerto 1433 y `databaseName`
-  - Somee bloquea IP → verificá acceso remoto en el panel
-  - Flyway falla → base vacía debería funcionar; si re-deployás sobre tablas existentes, puede haber conflicto
-
-### Frontend en blanco o "Failed to fetch"
-
-- `VITE_API_URL` mal seteada (falta `/api`, o http en vez de https)
-- Backend dormido (Render free) → esperá y reintentá
-- Re-deploy del front después de cambiar `VITE_API_URL` (Vite la embebe en build time)
-
-### Mixed content
-
-- Backend y front deben ser **HTTPS**. Render y Vercel lo dan por defecto.
+- [ ] `GET /api/meta` responde JSON
+- [ ] Dashboard con KPIs (40 contratos en seed)
+- [ ] Listado de contratos carga
+- [ ] Cambio de rol en la UI funciona
 
 ---
 
@@ -152,14 +123,14 @@ El backend ya acepta `https://*.vercel.app` por defecto en cloud. No hace falta 
 
 ```
 SPRING_PROFILES_ACTIVE=cloud
-SGA_DB_URL=jdbc:sqlserver://...
-SGA_DB_USER=...
-SGA_DB_PASSWORD=...
+SGA_DB_URL=jdbc:sqlserver://GIA_DB_PoC.mssql.somee.com:1433;databaseName=GIA_DB_PoC;encrypt=true;trustServerCertificate=true;packetSize=4096
+SGA_DB_USER=jppirra_SQLLogin_1
+SGA_DB_PASSWORD=<misma que MatrizPonderada>
 SGA_CORS_ORIGINS=https://*.vercel.app
 JAVA_TOOL_OPTIONS=-Xmx350m
 ```
 
-### Frontend (Vercel)
+### Frontend (Vercel) — solo modo B
 
 ```
 VITE_API_URL=https://sga-alquileres-api.onrender.com/api

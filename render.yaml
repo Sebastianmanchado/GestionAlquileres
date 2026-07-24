@@ -1,5 +1,6 @@
 # Blueprint Render: https://dashboard.render.com/blueprints
 # Conectar repo GitHub → New Blueprint → seleccionar este archivo.
+# Somee: misma instancia que MatrizPonderada (GIA_DB_PoC.mssql.somee.com).
 services:
   - type: web
     name: sga-alquileres-api
@@ -15,9 +16,9 @@ services:
       - key: JAVA_TOOL_OPTIONS
         value: -Xmx350m
       - key: SGA_DB_URL
-        sync: false
+        value: jdbc:sqlserver://GIA_DB_PoC.mssql.somee.com:1433;databaseName=GIA_DB_PoC;encrypt=true;trustServerCertificate=true;packetSize=4096
       - key: SGA_DB_USER
-        sync: false
+        value: jppirra_SQLLogin_1
       - key: SGA_DB_PASSWORD
         sync: false
       - key: SGA_CORS_ORIGINS
