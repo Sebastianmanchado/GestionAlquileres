@@ -7,7 +7,7 @@ import { money, periodo as fmtPeriodo, estadoConciliacion } from '../format';
 import { useAsync } from '../hooks';
 import { Loading, ErrorBox } from './Dashboard';
 
-const GRID = '100px 1fr 150px 150px 130px 160px 170px';
+const GRID = '100px 1fr 150px 150px 100px 130px 160px 170px';
 
 export function ConciliacionPeriodo() {
   const { navigate, meta, role } = useApp();
@@ -58,7 +58,7 @@ export function ConciliacionPeriodo() {
       <div style={{ ...s.panel, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: GRID, background: c.headerBg }}>
           <div style={s.th}>NIS</div><div style={s.th}>Contrato</div><div style={s.th}>Importe esperado</div>
-          <div style={s.th}>Importe facturado</div><div style={s.th}>Diferencia</div><div style={s.th}>Comprobante asignado</div><div style={s.th}>Estado</div>
+          <div style={s.th}>Importe facturado</div><div style={s.th}>Facturas</div><div style={s.th}>Diferencia</div><div style={s.th}>Comprobante asignado</div><div style={s.th}>Estado</div>
         </div>
         {rows.map((r: any) => {
           const info = estadoConciliacion(r.estadoCodigo);
@@ -73,6 +73,7 @@ export function ConciliacionPeriodo() {
               </div>
               <div style={{ padding: '11px 12px' }}>{money(r.esperado)}</div>
               <div style={{ padding: '11px 12px' }}>{r.estadoCodigo === 'SIN_FACTURA' ? '—' : money(r.facturado)}</div>
+              <div style={{ padding: '11px 12px' }}>{r.facturas_existentes + "/" + r.cantidad_facturas}</div>
               <div style={{ padding: '11px 12px', fontWeight: 600 }}>{money(r.diferencia)}</div>
               <div style={{ padding: '11px 12px' }}>{r.comprobante ?? '—'}</div>
               <div style={{ padding: '11px 12px' }}><Badge label={info.label} tone={info.tone} /></div>

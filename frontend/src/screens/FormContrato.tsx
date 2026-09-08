@@ -16,6 +16,33 @@ export function FormContrato({ id }: { id?: number }) {
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(!editing);
 
+  function calcularCantidadMeses(fechaInicio?: string, fechaFin?: string): number {
+  if (!fechaInicio || !fechaFin) return 0;
+
+  const inicio = new Date(`${fechaInicio}T00:00:00`);
+  const fin = new Date(`${fechaFin}T00:00:00`);
+
+  if (inicio > fin) return 0;
+
+  return (
+    (fin.getFullYear() - inicio.getFullYear()) * 12 +
+    (fin.getMonth() - inicio.getMonth()) +
+    1
+  );
+}
+
+function generarPorcentajes(cantidad: number): number[] {
+  if (cantidad <= 0) return [];
+
+  const base = Math.floor(100 / cantidad);
+  const resto = 100 % cantidad;
+
+  return Array.from(
+    { length: cantidad },
+    (_, i) => base + (i < resto ? 1 : 0)
+  );
+}
+
   useEffect(() => { api.get<Cat>('/catalogs').then(setCat); }, []);
   useEffect(() => {
     if (editing) {
@@ -87,6 +114,131 @@ export function FormContrato({ id }: { id?: number }) {
         </>
       ),
     },
+    {
+      key: 'facturas', titulo: 'Facturas', body: (
+        <>
+          <F label="Tipo de facturación">
+            <select style={{ ...s.input }} value={form.tipoFacturacion ?? 'mensual'}
+              onChange={(e) => {
+                const tipo = e.target.value;
+                set('tipoFacturacion', tipo);
+
+                if (tipo === 'mensual') {
+                  const cantidad = calcularCantidadMeses(
+                    form.fechaInicio,
+                    form.fechaVencimiento
+                  );
+
+                  set('cantidadFacturas', cantidad);
+
+                  set(
+                    'facturas',
+                    generarPorcentajes(cantidad).map((porcentaje, index) => ({
+                      numero: index + 1,
+                      porcentaje,
+                    }))
+                  );
+                } else {
+                  set('cantidadFacturas', 1);
+
+                  set('facturas', [
+                    {
+                      numero: 1,
+                      porcentaje: 100,
+                    },
+                  ]);
+                }
+              }}
+            >
+              <option value="mensual">Mensual</option>
+              <option value="personalizado">Personalizado</option>
+            </select>
+          </F>
+
+          <F label="Importe total"><input style={s.input} value={form.importeTotal ?? ''} onChange={(e) => set('importeTotal', e.target.value)} placeholder="$ 0"/></F>
+
+          {form.tipoFacturacion === 'mensual' && (
+            <>
+              <F label="Fecha de inicio">
+                <input type="date" style={s.input} value={form.fechaInicio ?? ''}
+                  onChange={(e) => {
+                    const fechaInicio = e.target.value;
+
+                    set('fechaInicio', fechaInicio);
+
+                    const cantidad = calcularCantidadMeses(
+                      fechaInicio,
+                      form.fechaVencimiento
+                    );
+
+                    set('cantidadFacturas', cantidad);
+
+                    set(
+                      'facturas',
+                      generarPorcentajes(cantidad).map((porcentaje, index) => ({
+                        numero: index + 1,
+                        porcentaje,
+                      }))
+                    );
+                  }}
+                />
+              </F>
+
+              <F label="Fecha de fin">
+                <input type="date" style={s.input} value={form.fechaVencimiento ?? ''}
+                  onChange={(e) => {
+                    const fechaFin = e.target.value;
+
+                    set('fechaVencimiento', fechaFin);
+
+                    const cantidad = calcularCantidadMeses(
+                      form.fechaInicio,
+                      fechaFin
+                    );
+
+                    set('cantidadFacturas', cantidad);
+
+                    set(
+                      'facturas',
+                      generarPorcentajes(cantidad).map((porcentaje, index) => ({
+                        numero: index + 1,
+                        porcentaje,
+                      }))
+                    );
+                  }}
+                />
+              </F>
+            </>
+          )}
+
+          {form.tipoFacturacion === 'personalizado' && (
+            <F label="Cantidad de facturas">
+              <input type="number" style={s.input} value={form.cantidadFacturas ?? ''}
+                onChange={(e) => {
+                  const cantidad = Math.max(
+                    1,
+                    Number.parseInt(e.target.value || '1', 10)
+                  );
+
+                  set('cantidadFacturas', cantidad);
+
+                  set(
+                    'facturas',
+                    generarPorcentajes(cantidad).map((porcentaje, index) => ({
+                      numero: index + 1,
+                      porcentaje,
+                    }))
+                  );
+                }}
+              />
+            </F>
+          )}
+
+          {(form.facturas ?? []).map((factura: any, index: number) => { const importe = (Number(form.importeTotal) || 0) * (Number(factura.porcentaje) || 0) / 100; return ( <F key={factura.numero} label={`Factura ${factura.numero}`} span={2} > <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}> <div style={{ display: 'flex', alignItems: 'center', flex: 1, }} > <input type="number" min="0" max="100" step="1" style={{ ...s.input, flex: 1, }} value={factura.porcentaje} onChange={(e) => { const facturas = [...form.facturas]; facturas[index] = { ...facturas[index], porcentaje: Number.parseInt( e.target.value || '0', 10 ), }; set('facturas', facturas); }} /> <span style={{ marginLeft: 6, fontSize: 13, color: c.muted, }} > % </span> </div> <span style={{ fontSize: 13 }}> ${importe.toFixed(2)} </span> </div> </F> ); })}
+        </>
+      ),
+    },
+
     {
       key: 'ajustes', titulo: 'Ajustes e índice', body: (
         <>

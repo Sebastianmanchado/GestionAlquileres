@@ -163,6 +163,7 @@ CREATE TABLE contrato (
     tolerancia_importe_pct DECIMAL(6,2)   NULL,
     observaciones          NVARCHAR(MAX)  NULL,
     creado_en              DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
+    cantidad_facturas      SMALLINT       NOT NULL DEFAULT 0,
     CONSTRAINT fk_contrato_inmueble  FOREIGN KEY (inmueble_id) REFERENCES inmueble(id),
     CONSTRAINT fk_contrato_locador   FOREIGN KEY (locador_id) REFERENCES locador(id),
     CONSTRAINT fk_contrato_acreedor  FOREIGN KEY (acreedor_sap_id) REFERENCES acreedor_sap(id),

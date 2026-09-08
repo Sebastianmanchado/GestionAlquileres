@@ -73,13 +73,14 @@ public class ContractService {
                 .addValue("periodicidad", str(body.getOrDefault("periodicidad", "TRIMESTRAL")))
                 .addValue("tipoComp", asInt(body.getOrDefault("tipoComprobanteId", 1)))
                 .addValue("tolerancia", tolerancia)
-                .addValue("obs", str(body.get("observaciones")));
+                .addValue("obs", str(body.get("observaciones")))
+                .addValue("cantidad_facturas", asInt(body.getOrDefault("cantidad_facturas", 1)));
         repo.jdbc().update("""
             INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                                   fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
-                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones)
+                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones, cantidad_facturas)
             VALUES (:numero, :inmuebleId, :locadorId, :acreedorId, :tipoContrato, :estadoId,
-                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :obs)
+                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :obs, :cantidad_facturas)
             """, p, kh, new String[]{"id"});
         long contratoId = kh.getKey().longValue();
 

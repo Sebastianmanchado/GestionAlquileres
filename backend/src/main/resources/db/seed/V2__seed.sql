@@ -166,12 +166,12 @@ BEGIN
     -- Contrato
     INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                           fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
-                          indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones)
+                          indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones, cantidad_facturas)
     VALUES (N'C-' + RIGHT('000000' + CAST(1000 + @i AS NVARCHAR(10)), 6),
             @inmId, @locadorId, @acreedorId, @tipoContrato, @estadoId,
             @inicio, @venc, 'ARS', @importe * 0.78, @deposito,
             @indice, N'TRIMESTRAL', CASE WHEN @tipoContrato = 1 THEN 1 ELSE 2 END, 3.0,
-            N'Contrato generado para la demo del MVP.');
+            N'Contrato generado para la demo del MVP.', 0);
     DECLARE @conId BIGINT = SCOPE_IDENTITY();
 
     -- Historial de valores (contrato_valor)
@@ -266,6 +266,18 @@ INSERT INTO factura (cuit_emisor, razon_social, tipo_comprobante_id, punto_venta
  ('30687412309', N'Fideicomiso Norte',         1, 4, N'0004-00003321', '2026-05-09','2026-05-01', 414297.52, 87002.48, 501300.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
  ('33710293845', N'Grupo Inmobiliario Cuyo SA',1, 1, N'0001-00012099', '2026-06-07','2026-06-01', 162809.92, 34190.08, 197000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
  ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio);
+
+
+/* ---------- Actualizar cantidad de facturas por contrato ---------- */
+UPDATE c
+SET c.cantidad_facturas = ISNULL(f.cantidad, 0)
+FROM contrato c
+LEFT JOIN (
+    SELECT contrato_id, COUNT(*) AS cantidad
+    FROM factura
+    WHERE contrato_id IS NOT NULL
+    GROUP BY contrato_id
+) f ON f.contrato_id = c.id;
 
 /* ---------- Conciliación del período 2026-06 ---------- */
 DECLARE @c2 BIGINT, @esp DECIMAL(18,2);

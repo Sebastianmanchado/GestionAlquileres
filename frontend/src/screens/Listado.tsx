@@ -100,7 +100,7 @@ export function Listado() {
             <div style={{ minWidth: 1720 }}>
               <div style={{ display: 'grid', gridTemplateColumns: GRID, background: c.headerBg }}>
                 <Th sticky>NIS</Th><Th>Unidad de negocio</Th><Th>Región</Th><Th>Localidad</Th><Th>Provincia</Th>
-                <Th>Destino / uso</Th><Th>m²</Th><Th>Valor actual</Th><Th>Valor / m²</Th><Th>Índice</Th>
+                <Th>Destino / uso</Th><Th>Valor actual</Th><Th>Índice</Th>
                 <Th>Tipo contrato</Th><Th>Inicio</Th><Th>Vencimiento</Th><Th>Estado</Th><Th>Propietario</Th><Th>Acciones</Th>
               </div>
               {data?.rows.map((r) => {
@@ -111,7 +111,7 @@ export function Listado() {
                     style={{ display: 'grid', gridTemplateColumns: GRID, borderTop: `1px solid ${c.line}`, fontSize: 12.5, cursor: 'pointer', background: '#fff' }}>
                     <CellSticky>{r.nis}</CellSticky>
                     <Cell>{r.denom}</Cell><Cell>{r.region}</Cell><Cell>{r.localidad}</Cell><Cell>{r.provincia}</Cell>
-                    <Cell>{r.destino}</Cell><Cell>{fmtM2(r.m2)}</Cell><Cell>{money(r.valorActual)}</Cell><Cell>{money(valorM2)}</Cell><Cell>{r.indice}</Cell>
+                    <Cell>{r.destino}</Cell><Cell>{money(r.valorActual)}</Cell><Cell>{r.indice}</Cell>
                     <Cell>{r.tipo}</Cell><Cell>{dateAr(r.inicio)}</Cell>
                     <Cell><span style={{ textDecoration: r.estadoCodigo === 'PROX_VENCER' ? 'underline' : 'none', fontWeight: r.estadoCodigo === 'PROX_VENCER' ? 700 : 400 }}>{dateAr(r.vencimiento)}</span></Cell>
                     <Cell><Badge label={est.label} tone={est.tone} /></Cell>

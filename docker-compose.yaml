@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: sga-alquileres-api
+
+    ports:
+      - "8081:8081"
+
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS}
+      SGA_DB_URL: ${SGA_DB_URL}
+      SGA_DB_USER: ${SGA_DB_USER}
+      SGA_DB_PASSWORD: ${SGA_DB_PASSWORD}
+      SGA_CORS_ORIGINS: ${SGA_CORS_ORIGINS}
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/api/meta || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    restart: unless-stopped

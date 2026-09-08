@@ -41,7 +41,12 @@ public class ReconciliationService {
         List<Map<String, Object>> rows = repo.query("""
             SELECT co.id, i.nis, i.denominacion AS denom,
                    co.importe_esperado AS esperado, co.importe_facturado AS facturado, co.diferencia,
-                   co.estado AS estadoCodigo, c.id AS contratoId,
+                   co.estado AS estadoCodigo, c.id AS contratoId, c.cantidad_facturas as cantidad_facturas,
+                   (
+                        SELECT COUNT(*)
+                        FROM factura f
+                        WHERE f.contrato_id = c.id
+                    ) AS facturas_existentes,
                    (SELECT TOP 1 f.numero_comprobante FROM conciliacion_factura cf JOIN factura f ON f.id=cf.factura_id
                      WHERE cf.conciliacion_id=co.id ORDER BY f.id) AS comprobante
               FROM conciliacion co
