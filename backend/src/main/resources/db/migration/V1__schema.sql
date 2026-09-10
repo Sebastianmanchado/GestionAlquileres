@@ -142,6 +142,7 @@ CREATE TABLE archivo (
     creado_en        DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME()
 );
 
+
 /* ---------- Contrato ---------- */
 CREATE TABLE contrato (
     id                     BIGINT         NOT NULL IDENTITY(1,1) PRIMARY KEY,
@@ -172,6 +173,15 @@ CREATE TABLE contrato (
     CONSTRAINT fk_contrato_anterior  FOREIGN KEY (contrato_anterior_id) REFERENCES contrato(id),
     CONSTRAINT fk_contrato_indice    FOREIGN KEY (indice_ajuste_id) REFERENCES indice_ajuste(id),
     CONSTRAINT fk_contrato_comp      FOREIGN KEY (tipo_comprobante_id) REFERENCES tipo_comprobante(id)
+);
+
+CREATE TABLE factura_planificada (
+    id                      BIGINT          NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    contrato_id             BIGINT          NOT NULL,
+    porcentaje_esperado     SMALLINT        NOT NULL,
+    monto_esperado          DECIMAL(18,2)   NOT NULL,
+    estado               NVARCHAR(40)  NOT NULL,
+    CONSTRAINT fk_contrato_id  FOREIGN KEY (contrato_id) REFERENCES contrato(id),
 );
 
 CREATE TABLE contrato_valor (

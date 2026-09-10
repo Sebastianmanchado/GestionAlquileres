@@ -4,16 +4,22 @@ import com.correoargentino.sga.repo.SgaRepository;
 import com.correoargentino.sga.security.CurrentUserProvider;
 import com.correoargentino.sga.web.ForbiddenException;
 import com.correoargentino.sga.web.NotFoundException;
+
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class InvoiceService {
@@ -22,6 +28,8 @@ public class InvoiceService {
     private final AuditService audit;
     private final CurrentUserProvider currentUser;
 
+    private static final Logger log = LoggerFactory.getLogger(InvoiceService.class);
+
     public InvoiceService(SgaRepository repo, AuditService audit, CurrentUserProvider currentUser) {
         this.repo = repo;
         this.audit = audit;
@@ -29,9 +37,25 @@ public class InvoiceService {
     }
 
     private void requireEdit() {
+        log.info(currentUser.currentRole().name());
         if (!currentUser.currentRole().canEdit()) {
             throw new ForbiddenException("El rol actual no puede modificar facturas.");
         }
+    }
+
+    public List<Map<String, Object>> planificadas(){
+        List<Map<String, Object>> facturas = repo.query(
+            """
+            SELECT
+                id,
+                contrato_id,
+                porcentaje_esperado,
+                monto_esperado,
+                estado
+            FROM factura_planificada
+            """, new MapSqlParameterSource()
+        );
+        return facturas;
     }
 
     public List<Map<String, Object>> unassigned() {

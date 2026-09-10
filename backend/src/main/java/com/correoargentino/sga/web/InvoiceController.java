@@ -21,6 +21,11 @@ public class InvoiceController {
         return service.unassigned();
     }
 
+    @GetMapping("/planificadas")
+    public List<Map<String, Object>> planificadas() {
+        return service.planificadas();
+    }
+
     @GetMapping("/{id}")
     public Map<String, Object> get(@PathVariable long id) {
         return service.get(id);

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { useApp } from '../context';
 import type { Route } from '../context';
 import { c, s } from '../theme';
-import { estadoFactura } from '../format';
+import { estadoFactura, } from '../format';
 import { Loading } from './Dashboard';
 
 export function DetalleFactura({ id, nueva, origin }: { id?: number; nueva?: boolean; origin: Route['screen'] }) {

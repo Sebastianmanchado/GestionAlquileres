@@ -5,6 +5,7 @@ import { c, s } from '../theme';
 import { money, periodo as fmtPeriodo } from '../format';
 import { useAsync } from '../hooks';
 import { Loading, ErrorBox } from './Dashboard';
+import { getApiRole } from '../api';
 
 const GRID = '150px 1fr 130px 120px 140px 220px';
 
@@ -14,6 +15,7 @@ export function FacturasSinAsignar() {
   const { data, loading, error, reload } = useAsync<any[]>(() => api.get('/invoices/unassigned'), [role]);
 
   async function assign(facturaId: number, contratoId: number) {
+    console.log(getApiRole());
     try { await api.post(`/invoices/${facturaId}/assign?contratoId=${contratoId}`); setExpanded(null); reload(); }
     catch (e: any) { alert('No se pudo asignar: ' + (e.message ?? e)); }
   }

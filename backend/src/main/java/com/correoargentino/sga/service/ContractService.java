@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -50,10 +51,12 @@ public class ContractService {
         Integer indiceId = asInt(body.get("indiceId"));
         LocalDate inicio = asDate(body.getOrDefault("fechaInicio", LocalDate.now().toString()));
         LocalDate venc = asDate(body.getOrDefault("fechaVencimiento", LocalDate.now().plusYears(3).toString()));
-        BigDecimal importe = asDecimal(body.getOrDefault("importeMensual", 0));
+        BigDecimal importe = asDecimal(body.getOrDefault("importeTotal", 0));
         BigDecimal deposito = asDecimal(body.get("deposito"));
         BigDecimal tolerancia = asDecimal(body.getOrDefault("tolerancia", 3));
         int estadoId = estadoFromVencimiento(venc);
+
+        List<Map<String, Object>> facturas = (List<Map<String, Object>>) body.get("facturas");
 
         String numero = nextContractNumber();
 
@@ -83,6 +86,28 @@ public class ContractService {
                     :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :obs, :cantidad_facturas)
             """, p, kh, new String[]{"id"});
         long contratoId = kh.getKey().longValue();
+
+        // Generacion de facturas planificadas
+        if (facturas != null){
+            for (Map<String, Object> factura : facturas) {
+                Integer porcentaje = ((Number) factura.get("porcentaje")).intValue();
+                BigDecimal monto = BigDecimal.valueOf(
+                    ((Number) factura.get("importe")).doubleValue()
+                );
+
+                repo.jdbc().update("""
+                    INSERT INTO factura_planificada
+                        (contrato_id, porcentaje_esperado, monto_esperado, estado)
+                    VALUES
+                        (:c, :porcentaje, :monto, 'PENDIENTE')
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("c", contratoId)
+                        .addValue("porcentaje", porcentaje)
+                        .addValue("monto", monto)
+                );
+            }
+        }
 
         // valor vigente inicial
         repo.jdbc().update("""
@@ -180,16 +205,67 @@ public class ContractService {
     }
 
     private long insertLocador(Map<String, Object> body) {
+        String cuit = str(body.getOrDefault("cuit", "00000000000"))
+                .replace("-", "");
+                
+        Long locadorId = repo.jdbc().queryForObject("""
+            SELECT id
+            FROM locador
+            WHERE cuit = :cuit
+            """,
+            new MapSqlParameterSource()
+                .addValue("cuit", cuit),
+            Long.class
+        );
+
+        if (locadorId != null) {
+
+            repo.jdbc().update("""
+                UPDATE locador
+                SET email = :email,
+                    telefono = :telefono
+                WHERE id = :id
+                """,
+                new MapSqlParameterSource()
+                    .addValue("id", locadorId)
+                    .addValue("email", str(body.get("email")))
+                    .addValue("telefono", str(body.get("telefono")))
+            );
+
+            return locadorId;
+        }
+
         KeyHolder kh = new GeneratedKeyHolder();
+
         MapSqlParameterSource p = new MapSqlParameterSource()
                 .addValue("razon", str(body.getOrDefault("razonSocial", "Locador sin nombre")))
-                .addValue("cuit", str(body.getOrDefault("cuit", "00000000000")).replace("-", ""))
+                .addValue("cuit", cuit)
                 .addValue("email", str(body.get("email")))
                 .addValue("telefono", str(body.get("telefono")));
+
         repo.jdbc().update("""
-            INSERT INTO locador (tipo_persona, razon_social, cuit, email, telefono, activo)
-            VALUES ('JURIDICA', :razon, :cuit, :email, :telefono, 1)
-            """, p, kh, new String[]{"id"});
+            INSERT INTO locador (
+                tipo_persona,
+                razon_social,
+                cuit,
+                email,
+                telefono,
+                activo
+            )
+            VALUES (
+                'JURIDICA',
+                :razon,
+                :cuit,
+                :email,
+                :telefono,
+                1
+            )
+            """,
+            p,
+            kh,
+            new String[]{"id"}
+        );
+
         return kh.getKey().longValue();
     }
 
