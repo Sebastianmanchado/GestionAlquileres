@@ -19,11 +19,10 @@ public class WebConfig implements WebMvcConfigurer {
                 .filter(s -> !s.isEmpty())
                 .toArray(String[]::new);
 
-        // allowedOriginPatterns acepta URLs exactas y wildcards (p.ej. https://*.vercel.app).
         registry.addMapping("/api/**")
-                .allowedOriginPatterns(patterns)
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
+                .allowedOriginPatterns("*") // ERROR: .allowedOriginPatterns(patterns) daba error. Se debe verificar a futuro una forma de que funcione bien
+                .allowedMethods("*")
                 .allowedHeaders("*")
-                .allowCredentials(true);
+                .allowCredentials(false);
     }
 }

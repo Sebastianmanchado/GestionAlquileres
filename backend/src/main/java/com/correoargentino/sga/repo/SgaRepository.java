@@ -214,9 +214,15 @@ public class SgaRepository {
             """, p));
 
         head.put("documents", query("""
-            SELECT a.id, a.nombre_original AS nombre, ca.tipo_documento AS tipo, a.creado_en AS fecha
-              FROM contrato_archivo ca JOIN archivo a ON a.id=ca.archivo_id
-             WHERE ca.contrato_id=:id ORDER BY a.creado_en DESC
+            SELECT
+                a.id,
+                a.nombre_original AS nombre,
+                'FACTURA' AS tipo,
+                a.creado_en AS fecha
+            FROM factura f
+            JOIN archivo a ON a.factura_id = f.id
+            WHERE f.contrato_id = :id
+            ORDER BY a.creado_en DESC
             """, p));
 
         head.put("changeLog", query("""

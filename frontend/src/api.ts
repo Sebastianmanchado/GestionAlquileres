@@ -7,20 +7,33 @@ let currentRole: RoleCode = 'ANALISTA';
 export function setApiRole(role: RoleCode) { currentRole = role; }
 export function getApiRole(): RoleCode { return currentRole; }
 
-async function handle<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`;
-    try {
-      const body = await res.json();
-      if (body && body.message) message = body.message;
-    } catch {
-      /* sin cuerpo JSON */
-    }
-    throw new Error(message);
+async function handle<T>(r: Response): Promise<T> {
+  const text = await r.text();
+
+  console.log('STATUS:', r.status);
+  console.log('BODY:', text);
+
+  let data: any = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
   }
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  return text ? (JSON.parse(text) as T) : (undefined as T);
+
+  console.log('PARSED:', data);
+
+  if (!r.ok) {
+    throw new Error(
+      data?.message ||
+      data?.error ||
+      data?.detail ||
+      (typeof data === 'string' ? data : null) ||
+      `Error ${r.status}: ${r.statusText}`
+    );
+  }
+
+  return data as T;
 }
 
 function headers(json = true): HeadersInit {
@@ -51,8 +64,14 @@ export const api = {
     return fetch(url(path), { method: 'DELETE', headers: headers(false) }).then((r) => handle<T>(r));
   },
   upload<T = any>(path: string, form: FormData): Promise<T> {
-    return fetch(url(path), { method: 'POST', headers: { 'X-Role': currentRole }, body: form }).then((r) => handle<T>(r));
-  },
+    return fetch(url(path), {
+        method: 'POST',
+        headers: {
+            'X-Role': 'ANALISTA'
+        },
+        body: form
+    }).then((r) => handle<T>(r));
+},
 };
 
 export function qs(params: Record<string, string | number | undefined | null>): string {

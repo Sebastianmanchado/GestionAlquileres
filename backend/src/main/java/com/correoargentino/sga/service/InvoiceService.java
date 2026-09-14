@@ -14,10 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.coyote.BadRequestException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,7 +91,7 @@ public class InvoiceService {
             SELECT f.id, f.cuit_emisor AS cuit, f.razon_social AS razonSocial, f.numero_comprobante AS comprobante,
                    f.importe_total AS importe, f.importe_neto AS neto, f.importe_iva AS iva,
                    f.periodo_facturado AS periodo, f.fecha_emision AS fechaEmision, f.cae, f.estado AS estadoCodigo,
-                   f.punto_venta AS puntoVenta, f.observaciones, f.archivo_id AS archivoId,
+                   f.punto_venta AS puntoVenta, f.observaciones,
                    tc.nombre AS tipoComprobante, tc.id AS tipoComprobanteId,
                    c.id AS contratoId, i.nis AS contratoNis, i.denominacion AS contratoDenom
               FROM factura f
@@ -101,77 +105,293 @@ public class InvoiceService {
     }
 
     @Transactional
-    public long create(Map<String, Object> body) {
+    public long create(Map<String, Object> body)
+            throws BadRequestException {
+
         requireEdit();
-        BigDecimal total = asDecimal(body.getOrDefault("importe", 0));
-        BigDecimal neto = total == null ? null : total.divide(new BigDecimal("1.21"), 2, java.math.RoundingMode.HALF_UP);
-        BigDecimal iva = total == null || neto == null ? null : total.subtract(neto);
+
+        FacturaValidada factura = validarFactura(body);
+
         KeyHolder kh = new GeneratedKeyHolder();
+
         MapSqlParameterSource p = new MapSqlParameterSource()
-                .addValue("cuit", str(body.getOrDefault("cuit", "00000000000")).replace("-", ""))
-                .addValue("razon", str(body.get("razonSocial")))
-                .addValue("comprobante", str(body.get("comprobante")))
-                .addValue("total", total).addValue("neto", neto).addValue("iva", iva)
-                .addValue("periodo", asDate(body.get("periodo")))
-                .addValue("fechaEmision", asDate(body.get("fechaEmision")))
-                .addValue("tipoComp", asInt(body.getOrDefault("tipoComprobanteId", 1)))
-                .addValue("obs", str(body.get("observaciones")));
+            .addValue("cuit", factura.cuit())
+            .addValue("razon", factura.razonSocial())
+            .addValue("comprobante", factura.comprobante())
+            .addValue("total", factura.total())
+            .addValue("neto", factura.neto())
+            .addValue("iva", factura.iva())
+            .addValue("periodo", factura.periodo())
+            .addValue("tipoComp", 1)
+            .addValue("fechaEmision", factura.fechaEmision())
+            .addValue("obs", factura.observaciones());
+
         repo.jdbc().update("""
-            INSERT INTO factura (cuit_emisor, razon_social, numero_comprobante, importe_total, importe_neto, importe_iva,
-                                 periodo_facturado, fecha_emision, tipo_comprobante_id, estado, origen, observaciones)
-            VALUES (:cuit, :razon, :comprobante, :total, :neto, :iva, :periodo, :fechaEmision, :tipoComp, 'SIN_ASIGNAR', 'MANUAL', :obs)
-            """, p, kh, new String[]{"id"});
+            INSERT INTO factura (
+                cuit_emisor,
+                razon_social,
+                numero_comprobante,
+                importe_total,
+                importe_neto,
+                importe_iva,
+                periodo_facturado,
+                fecha_emision,
+                tipo_comprobante_id,
+                estado,
+                origen,
+                observaciones
+            )
+            VALUES (
+                :cuit,
+                :razon,
+                :comprobante,
+                :total,
+                :neto,
+                :iva,
+                :periodo,
+                :fechaEmision,
+                :tipoComp,
+                'SIN_ASIGNAR',
+                'MANUAL',
+                :obs
+            )
+            """,
+            p,
+            kh,
+            new String[]{"id"}
+        );
+
         long id = kh.getKey().longValue();
-        audit.log("factura", String.valueOf(id), "CREAR", "Creó una factura manual", "—", null, null);
+
+        audit.log(
+            "factura",
+            String.valueOf(id),
+            "CREAR",
+            "Creó una factura manual",
+            "—",
+            null,
+            null
+        );
+
         return id;
     }
 
     @Transactional
-    public void update(long id, Map<String, Object> body) {
+    public void update(long id, Map<String, Object> body)
+            throws BadRequestException {
+
         requireEdit();
+
         get(id);
-        BigDecimal total = body.get("importe") == null ? null : asDecimal(body.get("importe"));
+
+        FacturaValidada factura = validarFactura(body);
+
         MapSqlParameterSource p = new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("cuit", body.get("cuit") == null ? null : str(body.get("cuit")).replace("-", ""))
-                .addValue("razon", str(body.get("razonSocial")))
-                .addValue("comprobante", str(body.get("comprobante")))
-                .addValue("total", total)
-                .addValue("periodo", body.get("periodo") == null ? null : asDate(body.get("periodo")))
-                .addValue("fechaEmision", body.get("fechaEmision") == null ? null : asDate(body.get("fechaEmision")))
-                .addValue("obs", str(body.get("observaciones")));
+            .addValue("id", id)
+            .addValue("cuit", factura.cuit())
+            .addValue("razon", factura.razonSocial())
+            .addValue("comprobante", factura.comprobante())
+            .addValue("total", factura.total())
+            .addValue("neto", factura.neto())
+            .addValue("iva", factura.iva())
+            .addValue("periodo", factura.periodo())
+            .addValue("fechaEmision", factura.fechaEmision())
+            .addValue("obs", factura.observaciones());
+
         repo.jdbc().update("""
-            UPDATE factura SET
-                cuit_emisor = COALESCE(:cuit, cuit_emisor),
-                razon_social = COALESCE(:razon, razon_social),
-                numero_comprobante = COALESCE(:comprobante, numero_comprobante),
-                importe_total = COALESCE(:total, importe_total),
-                periodo_facturado = COALESCE(:periodo, periodo_facturado),
-                fecha_emision = COALESCE(:fechaEmision, fecha_emision),
-                observaciones = COALESCE(:obs, observaciones)
-             WHERE id=:id
-            """, p);
-        audit.log("factura", String.valueOf(id), "EDITAR", "Editó la factura", "—", null, null);
+            UPDATE factura
+            SET
+                cuit_emisor = :cuit,
+                razon_social = :razon,
+                numero_comprobante = :comprobante,
+                importe_total = :total,
+                importe_neto = :neto,
+                importe_iva = :iva,
+                periodo_facturado = :periodo,
+                fecha_emision = :fechaEmision,
+                observaciones = :obs
+            WHERE id = :id
+            """,
+            p
+        );
+
+        audit.log(
+            "factura",
+            String.valueOf(id),
+            "EDITAR",
+            "Editó la factura",
+            "—",
+            null,
+            null
+        );
     }
 
     @Transactional
-    public void assign(long id, long contratoId) {
+    public void assign(long id, long contratoId) throws BadRequestException {
+
         requireEdit();
+
+        // =========================================================
+        // 1. OBTENER CONTRATO
+        // =========================================================
         Map<String, Object> contrato = repo.queryOne(
-                "SELECT c.id, c.inmueble_id AS inmuebleId, i.nis, i.denominacion AS denom FROM contrato c JOIN inmueble i ON i.id=c.inmueble_id WHERE c.id=:c",
-                new MapSqlParameterSource("c", contratoId));
-        if (contrato == null) throw new NotFoundException("Contrato no encontrado");
-        MapSqlParameterSource p = new MapSqlParameterSource()
-                .addValue("id", id)
+            """
+            SELECT
+                c.id,
+                c.inmueble_id AS inmuebleId,
+                i.nis,
+                i.denominacion AS denom
+            FROM contrato c
+            JOIN inmueble i ON i.id = c.inmueble_id
+            WHERE c.id = :c
+            """,
+            new MapSqlParameterSource("c", contratoId)
+        );
+
+        if (contrato == null) {
+            throw new NotFoundException("Contrato no encontrado");
+        }
+
+        // =========================================================
+        // 2. OBTENER FACTURA
+        // =========================================================
+        Map<String, Object> factura = repo.queryOne(
+            """
+            SELECT
+                id,
+                importe_total AS importeTotal,
+                periodo_facturado AS periodoFacturado
+            FROM factura
+            WHERE id = :id
+            """,
+            new MapSqlParameterSource("id", id)
+        );
+
+        if (factura == null) {
+            throw new NotFoundException("Factura no encontrada");
+        }
+
+        BigDecimal importeTotal = factura.get("importeTotal") == null
+            ? BigDecimal.ZERO
+            : (BigDecimal) factura.get("importeTotal");
+
+        LocalDate periodo = factura.get("periodoFacturado") == null
+            ? null
+            : ((LocalDate) factura.get("periodoFacturado"));
+
+        if (periodo == null) {
+            throw new BadRequestException(
+                "La factura no tiene un período facturado."
+            );
+        }
+
+        // =========================================================
+        // 3. OBTENER CONCILIACIÓN
+        // =========================================================
+        Map<String, Object> conciliacion = repo.queryOne(
+            """
+            SELECT
+                id,
+                importe_facturado AS importeFacturado,
+                importe_esperado AS importeEsperado,
+                estado AS est
+            FROM conciliacion
+            WHERE contrato_id = :contratoId
+            """,
+            new MapSqlParameterSource()
                 .addValue("contratoId", contratoId)
-                .addValue("inmuebleId", contrato.get("inmuebleId"));
-        repo.jdbc().update("""
-            UPDATE factura SET contrato_id=:contratoId, inmueble_id=:inmuebleId, estado='PENDIENTE'
-             WHERE id=:id
-            """, p);
-        String ref = contrato.get("nis") + " · " + contrato.get("denom");
-        audit.log("factura", String.valueOf(id), "ASIGNAR", "Asignó factura al contrato", ref, null, null);
+        );
+
+        if (conciliacion == null) {
+            throw new NotFoundException(
+                "No existe una conciliación para el contrato y período de la factura."
+            );
+        }
+
+        BigDecimal facturado = conciliacion.get("importeFacturado") == null
+            ? BigDecimal.ZERO
+            : (BigDecimal) conciliacion.get("importeFacturado");
+
+        BigDecimal esperado = conciliacion.get("importeEsperado") == null
+            ? BigDecimal.ZERO
+            : (BigDecimal) conciliacion.get("importeEsperado");
+
+        // Sumar el importe neto de la factura
+        BigDecimal nuevoFacturado = facturado.add(importeTotal);
+
+        // Calcular estado con el nuevo importe facturado
+        String estado;
+
+        if (nuevoFacturado.compareTo(esperado) == 0) {
+            estado = "OK";
+
+        } else if (
+            nuevoFacturado
+                .subtract(esperado)
+                .abs()
+                .compareTo(
+                    esperado.multiply(new BigDecimal("0.03"))
+                ) <= 0
+        ) {
+            estado = "OK_CON_DIF";
+
+        } else {
+            estado = "CON_DIFERENCIA";
+        }
+
+        // Actualizar conciliación
+        repo.jdbc().update(
+            """
+            UPDATE conciliacion
+            SET
+                importe_facturado = :importeFacturado,
+                estado = :estado
+            WHERE id = :id
+            """,
+            new MapSqlParameterSource()
+                .addValue("id", conciliacion.get("id"))
+                .addValue("importeFacturado", nuevoFacturado)
+                .addValue("estado", estado)
+        );
+
+
+        // =========================================================
+        // 5. ASIGNAR FACTURA AL CONTRATO
+        // =========================================================
+        MapSqlParameterSource p = new MapSqlParameterSource()
+            .addValue("id", id)
+            .addValue("contratoId", contratoId)
+            .addValue("inmuebleId", contrato.get("inmuebleId"));
+
+        repo.jdbc().update(
+            """
+            UPDATE factura
+            SET
+                contrato_id = :contratoId,
+                inmueble_id = :inmuebleId,
+                estado = 'PENDIENTE'
+            WHERE id = :id
+            """,
+            p
+        );
+
+        // =========================================================
+        // 6. AUDITORÍA
+        // =========================================================
+        String ref =
+            contrato.get("nis") + " · " + contrato.get("denom");
+
+        audit.log(
+            "factura",
+            String.valueOf(id),
+            "ASIGNAR",
+            "Asignó factura al contrato",
+            ref,
+            null,
+            null
+        );
     }
+
 
     private static Integer asInt(Object o) {
         if (o == null) return null;
@@ -201,4 +421,129 @@ public class InvoiceService {
     private static String str(Object o) {
         return o == null ? null : o.toString();
     }
+
+    private String requireString(Map<String, Object> body, String key) throws BadRequestException {
+        if (!body.containsKey(key)
+                || body.get(key) == null
+                || !(body.get(key) instanceof String value)
+                || value.isBlank()) {
+
+            throw new BadRequestException(
+                "El campo '" + key + "' es obligatorio y debe tener contenido."
+            );
+        }
+
+        return value.trim();
+    }
+
+    private YearMonth asYearMonth(Object value) {
+        if (value == null) {
+            return null;
+        }
+
+        try {
+            return YearMonth.parse(value.toString());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+}
+
+private record FacturaValidada(
+    String cuit,
+    String razonSocial,
+    String comprobante,
+    String observaciones,
+    BigDecimal total,
+    BigDecimal neto,
+    BigDecimal iva,
+    LocalDate periodo,
+    LocalDate fechaEmision
+) {}
+
+private FacturaValidada validarFactura(Map<String, Object> body)
+        throws BadRequestException {
+
+    String cuit = requireString(body, "cuit");
+    cuit = cuit.replace("-", "").trim();
+
+    if (cuit.length() < 11) {
+        throw new BadRequestException(
+            "El CUIT debe tener al menos 11 caracteres."
+        );
+    }
+
+    String razonSocial = requireString(body, "razonSocial");
+
+    String comprobante = requireString(body, "comprobante");
+
+    String observaciones = requireString(body, "observaciones");
+
+    BigDecimal total = asDecimal(body.get("importe"));
+
+    if (total == null) {
+        throw new BadRequestException(
+            "El importe debe ser un número válido."
+        );
+    }
+
+    if (total.compareTo(BigDecimal.ZERO) <= 0) {
+        throw new BadRequestException(
+            "El importe debe ser mayor a 0."
+        );
+    }
+
+    YearMonth periodo = asYearMonth(body.get("periodo"));
+
+    if (periodo == null) {
+        throw new BadRequestException(
+            "El período no es válido."
+        );
+    }
+
+    LocalDate periodoFecha = periodo.atDay(1);
+
+    LocalDate hoy = LocalDate.now();
+
+    LocalDate fechaEmision = asDate(body.get("fechaEmision"));
+
+    if (fechaEmision == null) {
+        throw new BadRequestException(
+            "La fecha de emisión no es válida."
+        );
+    }
+
+    YearMonth mesActual = YearMonth.from(hoy);
+
+    if (periodo.isAfter(mesActual)) {
+        throw new BadRequestException(
+            "El período no puede ser mayor al mes actual."
+        );
+    }
+
+    if (fechaEmision.isAfter(hoy)) {
+        throw new BadRequestException(
+            "La fecha de emisión no puede ser mayor a la fecha actual."
+        );
+    }
+
+    BigDecimal neto = total.divide(
+        new BigDecimal("1.21"),
+        2,
+        RoundingMode.HALF_UP
+    );
+
+    BigDecimal iva = total.subtract(neto);
+
+    return new FacturaValidada(
+        cuit,
+        razonSocial,
+        comprobante,
+        observaciones,
+        total,
+        neto,
+        iva,
+        periodoFecha,
+        fechaEmision
+    );
+}
 }

@@ -58,6 +58,24 @@ public class DocumentStorage {
         }
     }
 
+    public void delete(String rutaRelativa) {
+        try {
+            Path target = root.resolve(rutaRelativa).normalize();
+
+            if (!target.startsWith(root)) {
+                throw new IllegalArgumentException("Ruta inválida");
+            }
+
+            Files.deleteIfExists(target);
+
+        } catch (IOException e) {
+            throw new RuntimeException(
+                "No se pudo eliminar el archivo: " + e.getMessage(),
+                e
+            );
+        }
+    }
+
     private String sha256(byte[] bytes) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");

@@ -45,7 +45,7 @@ CREATE TABLE centro_costo (
 /* ---------- Inmuebles ---------- */
 CREATE TABLE inmueble (
     id                     BIGINT         NOT NULL IDENTITY(1,1) PRIMARY KEY,
-    nis                    NVARCHAR(40)   NOT NULL UNIQUE,
+    nis                    NVARCHAR(40)   NOT NULL,
     denominacion           NVARCHAR(200)  NOT NULL,
     direccion              NVARCHAR(250)  NULL,
     localidad_id           INT            NULL,
@@ -129,19 +129,6 @@ CREATE TABLE indice_valor (
     CONSTRAINT uk_indicevalor UNIQUE (indice_id, periodo)
 );
 
-/* ---------- Archivos ---------- */
-CREATE TABLE archivo (
-    id               BIGINT         NOT NULL IDENTITY(1,1) PRIMARY KEY,
-    uuid             UNIQUEIDENTIFIER NOT NULL UNIQUE,
-    nombre_original  NVARCHAR(250)  NOT NULL,
-    ruta_relativa    NVARCHAR(400)  NOT NULL UNIQUE,
-    mime_type        NVARCHAR(120)  NULL,
-    tamano_bytes     BIGINT         NULL,
-    sha256           CHAR(64)       NULL,
-    storage_backend  NVARCHAR(40)   NOT NULL DEFAULT 'FILESYSTEM',
-    creado_en        DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME()
-);
-
 
 /* ---------- Contrato ---------- */
 CREATE TABLE contrato (
@@ -197,27 +184,6 @@ CREATE TABLE contrato_valor (
     CONSTRAINT fk_cv_indice   FOREIGN KEY (indice_id) REFERENCES indice_ajuste(id)
 );
 
-CREATE TABLE contrato_seguro (
-    id              BIGINT        NOT NULL IDENTITY(1,1) PRIMARY KEY,
-    contrato_id     BIGINT        NOT NULL,
-    tipo            NVARCHAR(40)  NOT NULL,
-    nro_poliza      NVARCHAR(60)  NULL,
-    suma_asegurada  DECIMAL(18,2) NULL,
-    vigencia_hasta  DATE          NULL,
-    archivo_id      BIGINT        NULL,
-    CONSTRAINT fk_seguro_contrato FOREIGN KEY (contrato_id) REFERENCES contrato(id),
-    CONSTRAINT fk_seguro_archivo  FOREIGN KEY (archivo_id) REFERENCES archivo(id)
-);
-
-CREATE TABLE contrato_archivo (
-    contrato_id    BIGINT       NOT NULL,
-    archivo_id     BIGINT       NOT NULL,
-    tipo_documento NVARCHAR(80) NOT NULL,
-    CONSTRAINT pk_contrato_archivo PRIMARY KEY (contrato_id, archivo_id),
-    CONSTRAINT fk_ca_contrato FOREIGN KEY (contrato_id) REFERENCES contrato(id),
-    CONSTRAINT fk_ca_archivo  FOREIGN KEY (archivo_id) REFERENCES archivo(id)
-);
-
 /* ---------- RPA / Facturacion ---------- */
 CREATE TABLE rpa_ejecucion (
     id                  BIGINT           NOT NULL IDENTITY(1,1) PRIMARY KEY,
@@ -251,7 +217,6 @@ CREATE TABLE factura (
     estado             NVARCHAR(40)   NOT NULL DEFAULT 'SIN_ASIGNAR',
     origen             NVARCHAR(20)   NOT NULL DEFAULT 'MANUAL',
     rpa_ejecucion_id   BIGINT         NULL,
-    archivo_id         BIGINT         NULL,
     observaciones      NVARCHAR(MAX)  NULL,
     datos_extraidos    NVARCHAR(MAX)  NULL,
     creado_en          DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -259,7 +224,33 @@ CREATE TABLE factura (
     CONSTRAINT fk_factura_inmueble FOREIGN KEY (inmueble_id) REFERENCES inmueble(id),
     CONSTRAINT fk_factura_comp     FOREIGN KEY (tipo_comprobante_id) REFERENCES tipo_comprobante(id),
     CONSTRAINT fk_factura_rpa      FOREIGN KEY (rpa_ejecucion_id) REFERENCES rpa_ejecucion(id),
-    CONSTRAINT fk_factura_archivo  FOREIGN KEY (archivo_id) REFERENCES archivo(id)
+);
+
+/* ---------- Archivos ---------- */
+CREATE TABLE archivo (
+    id               BIGINT         NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    uuid             UNIQUEIDENTIFIER NOT NULL UNIQUE,
+    factura_id       BIGINT NOT NULL,
+    nombre_original  NVARCHAR(250)  NOT NULL,
+    ruta_relativa    NVARCHAR(400)  NOT NULL UNIQUE,
+    mime_type        NVARCHAR(120)  NULL,
+    tamano_bytes     BIGINT         NULL,
+    sha256           CHAR(64)       NULL,
+    storage_backend  NVARCHAR(40)   NOT NULL DEFAULT 'FILESYSTEM',
+    creado_en        DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT fk_factura_id  FOREIGN KEY (factura_id) REFERENCES factura(id)
+);
+
+CREATE TABLE contrato_seguro (
+    id              BIGINT        NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    contrato_id     BIGINT        NOT NULL,
+    tipo            NVARCHAR(40)  NOT NULL,
+    nro_poliza      NVARCHAR(60)  NULL,
+    suma_asegurada  DECIMAL(18,2) NULL,
+    vigencia_hasta  DATE          NULL,
+    archivo_id      BIGINT        NULL,
+    CONSTRAINT fk_seguro_contrato FOREIGN KEY (contrato_id) REFERENCES contrato(id),
+    CONSTRAINT fk_seguro_archivo  FOREIGN KEY (archivo_id) REFERENCES archivo(id)
 );
 
 /* ---------- Conciliacion ---------- */

@@ -4,6 +4,9 @@ import com.correoargentino.sga.repo.SgaRepository;
 import com.correoargentino.sga.security.CurrentUserProvider;
 import com.correoargentino.sga.web.ForbiddenException;
 import com.correoargentino.sga.web.NotFoundException;
+
+import org.apache.coyote.BadRequestException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -12,8 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class ContractService {
@@ -21,6 +28,7 @@ public class ContractService {
     private final SgaRepository repo;
     private final AuditService audit;
     private final CurrentUserProvider currentUser;
+    private static final Logger log = LoggerFactory.getLogger(InvoiceService.class);
 
     public ContractService(SgaRepository repo, AuditService audit, CurrentUserProvider currentUser) {
         this.repo = repo;
@@ -35,30 +43,108 @@ public class ContractService {
     }
 
     @Transactional
-    public long create(Map<String, Object> body) {
+    public long create(Map<String, Object> body) throws BadRequestException {
         requireEdit();
 
+            
+        
+
+        validateCreateBody(body);
+
         Long inmuebleId = asLong(body.get("inmuebleId"));
+
         if (inmuebleId == null) {
             inmuebleId = insertInmueble(body);
         }
-        Long locadorId = asLong(body.get("locadorId"));
-        if (locadorId == null) {
+
+        log.info("pasa inmueble");
+
+        Long locadorId;
+
+        if (body.containsKey("razonSocial") && body.containsKey("cuit")) {
+
+            requireValidString(body, "razonSocial");
+
+            String cuit = normalizeAndValidateCuit(body.get("cuit"));
+
+            body.put("cuit", cuit);
+
             locadorId = insertLocador(body);
+
+        } else {
+
+            locadorId = asLong(body.get("locadorId"));
+
+            if (locadorId == null) {
+                throw new BadRequestException(
+                    "Debe indicar 'locadorId' o informar 'razonSocial' y 'cuit'."
+                );
+            }
         }
+
+
+        log.info("paso inmueble y locador");
 
         Integer tipoContrato = asInt(body.getOrDefault("tipoContratoId", 1));
         Integer indiceId = asInt(body.get("indiceId"));
-        LocalDate inicio = asDate(body.getOrDefault("fechaInicio", LocalDate.now().toString()));
-        LocalDate venc = asDate(body.getOrDefault("fechaVencimiento", LocalDate.now().plusYears(3).toString()));
-        BigDecimal importe = asDecimal(body.getOrDefault("importeTotal", 0));
+
+        LocalDate inicio = asDate(
+            body.getOrDefault(
+                "fechaInicio",
+                LocalDate.now().toString()
+            )
+        );
+
+        log.info("pasa la fecha de inicio");
+
+        LocalDate venc = asDate(
+            body.getOrDefault(
+                "fechaVencimiento",
+                LocalDate.now().plusYears(3).toString()
+            )
+        );
+
+        log.info("pasa la vencimiento");
+
+        BigDecimal importe = asDecimal(
+            body.getOrDefault("importeTotal", 0)
+        );
+
+        log.info("pasa importe");
+
         BigDecimal deposito = asDecimal(body.get("deposito"));
-        BigDecimal tolerancia = asDecimal(body.getOrDefault("tolerancia", 3));
+
+        if (deposito.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BadRequestException(
+                "El deposito de " +
+                " debe ser mayor o igual a 0."
+            );
+        }
+
+        BigDecimal tolerancia = asDecimal(
+            body.getOrDefault("tolerancia", 3)
+        );
+
+        log.info("paso tolerancia");
+
         int estadoId = estadoFromVencimiento(venc);
 
-        List<Map<String, Object>> facturas = (List<Map<String, Object>>) body.get("facturas");
+        List<Map<String, Object>> facturas =
+            (List<Map<String, Object>>) body.get("facturas");
 
         String numero = nextContractNumber();
+
+        int totalPorcentaje = facturas.stream()
+            .mapToInt(f -> asInt(f.get("porcentaje")))
+            .sum();
+
+        if (totalPorcentaje != 100) {
+            throw new BadRequestException(
+                "La suma de los porcentajes de las facturas debe ser 100%."
+            );
+        }
+
+        log.info("paso todo");
 
         KeyHolder kh = new GeneratedKeyHolder();
         MapSqlParameterSource p = new MapSqlParameterSource()
@@ -86,10 +172,10 @@ public class ContractService {
                     :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :obs, :cantidad_facturas)
             """, p, kh, new String[]{"id"});
         long contratoId = kh.getKey().longValue();
-
+        log.info("se inserto contrato");
         // Generacion de facturas planificadas
-        if (facturas != null){
-            for (Map<String, Object> factura : facturas) {
+        
+        for (Map<String, Object> factura : facturas) {
                 Integer porcentaje = ((Number) factura.get("porcentaje")).intValue();
                 BigDecimal monto = BigDecimal.valueOf(
                     ((Number) factura.get("importe")).doubleValue()
@@ -107,7 +193,9 @@ public class ContractService {
                         .addValue("monto", monto)
                 );
             }
-        }
+        
+
+        log.info("se inserto facturas futuras");
 
         // valor vigente inicial
         repo.jdbc().update("""
@@ -115,59 +203,254 @@ public class ContractService {
             VALUES (:c, :desde, NULL, :importe, 'CONTRATO')
             """, new MapSqlParameterSource().addValue("c", contratoId).addValue("desde", inicio).addValue("importe", importe));
 
+        log.info("se inserto contrato valor");
         audit.log("contrato", String.valueOf(contratoId), "CREAR", "Creó el contrato " + numero,
                 numero, null, null);
         return contratoId;
+
+        
     }
 
     @Transactional
-    public void update(long id, Map<String, Object> body) {
+    public void update(long id, Map<String, Object> body)
+            throws BadRequestException {
+
         requireEdit();
+
+        // =========================================================
+        // 1. VERIFICAR QUE EXISTA EL CONTRATO
+        // =========================================================
         Map<String, Object> before = repo.getContractDetail(id);
-        if (before == null) throw new NotFoundException("Contrato no encontrado");
 
-        LocalDate venc = asDate(body.getOrDefault("fechaVencimiento", String.valueOf(before.get("vencimiento"))));
-        LocalDate inicio = asDate(body.getOrDefault("fechaInicio", String.valueOf(before.get("inicio"))));
-        BigDecimal tolerancia = asDecimal(body.getOrDefault("tolerancia", before.get("tolerancia")));
-        Integer indiceId = asInt(body.get("indiceId"));
-
-        MapSqlParameterSource p = new MapSqlParameterSource()
-                .addValue("id", id)
-                .addValue("inicio", inicio)
-                .addValue("venc", venc)
-                .addValue("estadoId", estadoFromVencimiento(venc))
-                .addValue("indiceId", indiceId)
-                .addValue("periodicidad", str(body.getOrDefault("periodicidad", before.get("periodicidad"))))
-                .addValue("tolerancia", tolerancia)
-                .addValue("obs", str(body.get("observaciones")));
-        repo.jdbc().update("""
-            UPDATE contrato SET fecha_inicio=:inicio, fecha_vencimiento=:venc, estado_contrato_id=:estadoId,
-                   indice_ajuste_id = COALESCE(:indiceId, indice_ajuste_id),
-                   periodicidad_ajuste=:periodicidad, tolerancia_importe_pct=:tolerancia,
-                   observaciones = COALESCE(:obs, observaciones)
-             WHERE id=:id
-            """, p);
-
-        // Ajuste de importe: cierra el valor vigente y abre uno nuevo
-        BigDecimal nuevoImporte = body.get("importeMensual") == null ? null : asDecimal(body.get("importeMensual"));
-        if (nuevoImporte != null) {
-            BigDecimal actual = repo.jdbc().queryForObject(
-                    "SELECT importe_mensual FROM contrato_valor WHERE contrato_id=:id AND vigencia_hasta IS NULL",
-                    new MapSqlParameterSource("id", id), BigDecimal.class);
-            if (actual == null || actual.compareTo(nuevoImporte) != 0) {
-                repo.jdbc().update("UPDATE contrato_valor SET vigencia_hasta=CAST(GETDATE() AS DATE) WHERE contrato_id=:id AND vigencia_hasta IS NULL",
-                        new MapSqlParameterSource("id", id));
-                repo.jdbc().update("""
-                    INSERT INTO contrato_valor (contrato_id, vigencia_desde, vigencia_hasta, importe_mensual, origen)
-                    VALUES (:id, CAST(GETDATE() AS DATE), NULL, :importe, 'ACUERDO')
-                    """, new MapSqlParameterSource().addValue("id", id).addValue("importe", nuevoImporte));
-                audit.log("contrato", String.valueOf(id), "EDITAR", "Importe mensual",
-                        String.valueOf(before.get("nis")), actual == null ? null : actual.toPlainString(), nuevoImporte.toPlainString());
-            }
+        if (before == null) {
+            throw new NotFoundException("Contrato no encontrado");
         }
 
-        audit.log("contrato", String.valueOf(id), "EDITAR", "Actualizó datos del contrato",
-                String.valueOf(before.get("nis")), null, null);
+        // =========================================================
+        // 2. VALIDAR TODO ANTES DE TOCAR LA BASE
+        // =========================================================
+        validateCreateBody(body);
+
+        // =========================================================
+        // 3. OBTENER VALORES YA VALIDADOS
+        // =========================================================
+        Long inmuebleId = asLong(body.get("inmuebleId"));
+        if (inmuebleId == null){
+            inmuebleId = insertInmueble(body);
+        } 
+
+        Long locadorId;
+
+        if (body.containsKey("razonSocial") && body.containsKey("cuit")) {
+
+            requireValidString(body, "razonSocial");
+
+            String cuit = normalizeAndValidateCuit(body.get("cuit"));
+
+            body.put("cuit", cuit);
+
+            locadorId = insertLocador(body);
+
+        } else {
+
+            locadorId = asLong(body.get("locadorId"));
+
+            if (locadorId == null) {
+                throw new BadRequestException(
+                    "Debe indicar 'locadorId' o informar 'razonSocial' y 'cuit'."
+                );
+            }
+        }
+        
+        Integer tipoContrato = asInt(body.get("tipoContratoId"));
+        Integer indiceId = asInt(body.get("indiceId"));
+
+        LocalDate inicio = asDate(body.get("fechaInicio"));
+        LocalDate venc = asDate(body.get("fechaVencimiento"));
+
+        BigDecimal importe = asDecimal(body.get("importeTotal"));
+        BigDecimal deposito = asDecimal(body.get("deposito"));
+        BigDecimal tolerancia = asDecimal(body.get("tolerancia"));
+
+        Long acreedorSapId = asLong(body.get("acreedorSapId"));
+        Integer tipoComprobanteId = asInt(body.get("tipoComprobanteId"));
+
+        String periodicidad = str(body.get("periodicidad"));
+        String observaciones = str(body.get("observaciones"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> facturas =
+            (List<Map<String, Object>>) body.get("facturas");
+
+        int estadoId = estadoFromVencimiento(venc);
+
+        // =========================================================
+        // 4. ACTUALIZAR CONTRATO
+        // =========================================================
+        MapSqlParameterSource p = new MapSqlParameterSource()
+            .addValue("id", id)
+            .addValue("inmuebleId", inmuebleId)
+            .addValue("locadorId", locadorId)
+            .addValue("acreedorId", acreedorSapId)
+            .addValue("tipoContrato", tipoContrato)
+            .addValue("inicio", inicio)
+            .addValue("venc", venc)
+            .addValue("estadoId", estadoId)
+            .addValue("importe", importe)
+            .addValue("deposito", deposito)
+            .addValue("indiceId", indiceId)
+            .addValue("periodicidad", periodicidad)
+            .addValue("tipoComp", tipoComprobanteId)
+            .addValue("tolerancia", tolerancia)
+            .addValue("obs", observaciones)
+            .addValue("cantidadFacturas", facturas.size());
+
+        repo.jdbc().update("""
+            UPDATE contrato
+            SET
+                inmueble_id = :inmuebleId,
+                locador_id = :locadorId,
+                acreedor_sap_id = :acreedorId,
+                tipo_contrato_id = :tipoContrato,
+                estado_contrato_id = :estadoId,
+                fecha_inicio = :inicio,
+                fecha_vencimiento = :venc,
+                importe_inicial = :importe,
+                deposito_garantia = :deposito,
+                indice_ajuste_id = :indiceId,
+                periodicidad_ajuste = :periodicidad,
+                tipo_comprobante_id = :tipoComp,
+                tolerancia_importe_pct = :tolerancia,
+                observaciones = :obs,
+                cantidad_facturas = :cantidadFacturas
+            WHERE id = :id
+            """,
+            p
+        );
+
+        // =========================================================
+        // 5. ACTUALIZAR FACTURAS PLANIFICADAS
+        // =========================================================
+
+        repo.jdbc().update("""
+            DELETE FROM factura_planificada
+            WHERE contrato_id = :id
+            """,
+            new MapSqlParameterSource("id", id)
+        );
+
+        for (Map<String, Object> factura : facturas) {
+
+            Integer porcentaje =
+                asInt(factura.get("porcentaje"));
+
+            BigDecimal monto =
+                asDecimal(factura.get("importe"));
+
+            repo.jdbc().update("""
+                INSERT INTO factura_planificada
+                    (
+                        contrato_id,
+                        porcentaje_esperado,
+                        monto_esperado,
+                        estado
+                    )
+                VALUES
+                    (
+                        :contratoId,
+                        :porcentaje,
+                        :monto,
+                        'PENDIENTE'
+                    )
+                """,
+                new MapSqlParameterSource()
+                    .addValue("contratoId", id)
+                    .addValue("porcentaje", porcentaje)
+                    .addValue("monto", monto)
+            );
+        }
+
+        // =========================================================
+        // 6. ACTUALIZAR VALOR DEL CONTRATO
+        // =========================================================
+
+        BigDecimal actual = null;
+
+        try {
+            actual = repo.jdbc().queryForObject(
+                """
+                SELECT importe_mensual
+                FROM contrato_valor
+                WHERE contrato_id = :id
+                AND vigencia_hasta IS NULL
+                """,
+                new MapSqlParameterSource("id", id),
+                BigDecimal.class
+            );
+        } catch (EmptyResultDataAccessException e) {
+            // No existe valor vigente.
+        }
+
+        if (actual == null || actual.compareTo(importe) != 0) {
+
+            repo.jdbc().update(
+                """
+                UPDATE contrato_valor
+                SET vigencia_hasta = CAST(GETDATE() AS DATE)
+                WHERE contrato_id = :id
+                AND vigencia_hasta IS NULL
+                """,
+                new MapSqlParameterSource("id", id)
+            );
+
+            repo.jdbc().update(
+                """
+                INSERT INTO contrato_valor
+                    (
+                        contrato_id,
+                        vigencia_desde,
+                        vigencia_hasta,
+                        importe_mensual,
+                        origen
+                    )
+                VALUES
+                    (
+                        :id,
+                        CAST(GETDATE() AS DATE),
+                        NULL,
+                        :importe,
+                        'ACUERDO'
+                    )
+                """,
+                new MapSqlParameterSource()
+                    .addValue("id", id)
+                    .addValue("importe", importe)
+            );
+
+            audit.log(
+                "contrato",
+                String.valueOf(id),
+                "EDITAR",
+                "Importe mensual",
+                String.valueOf(before.get("nis")),
+                actual == null ? null : actual.toPlainString(),
+                importe.toPlainString()
+            );
+        }
+
+        // =========================================================
+        // 7. AUDITORIA
+        // =========================================================
+
+        audit.log(
+            "contrato",
+            String.valueOf(id),
+            "EDITAR",
+            "Actualizó datos del contrato",
+            String.valueOf(before.get("nis")),
+            null,
+            null
+        );
     }
 
     @Transactional
@@ -204,46 +487,36 @@ public class ContractService {
         return inmuebleId;
     }
 
-    private long insertLocador(Map<String, Object> body) {
-        String cuit = str(body.getOrDefault("cuit", "00000000000"))
-                .replace("-", "");
-                
-        Long locadorId = repo.jdbc().queryForObject("""
-            SELECT id
+    private long insertLocador(Map<String, Object> body)
+            throws BadRequestException {
+
+        String cuit = normalizeAndValidateCuit(body.get("cuit"));
+        String razonSocial = str(body.get("razonSocial"));
+
+        requireValidString(body, "razonSocial");
+
+        // Verificar que no exista otro locador con el mismo CUIT
+        Integer existe = repo.jdbc().queryForObject(
+            """
+            SELECT COUNT(*)
             FROM locador
             WHERE cuit = :cuit
             """,
             new MapSqlParameterSource()
                 .addValue("cuit", cuit),
-            Long.class
+            Integer.class
         );
 
-        if (locadorId != null) {
-
-            repo.jdbc().update("""
-                UPDATE locador
-                SET email = :email,
-                    telefono = :telefono
-                WHERE id = :id
-                """,
-                new MapSqlParameterSource()
-                    .addValue("id", locadorId)
-                    .addValue("email", str(body.get("email")))
-                    .addValue("telefono", str(body.get("telefono")))
+        if (existe != null && existe > 0) {
+            throw new BadRequestException(
+                "Ya existe un locador registrado con el CUIT " + cuit + "."
             );
-
-            return locadorId;
         }
 
         KeyHolder kh = new GeneratedKeyHolder();
 
-        MapSqlParameterSource p = new MapSqlParameterSource()
-                .addValue("razon", str(body.getOrDefault("razonSocial", "Locador sin nombre")))
-                .addValue("cuit", cuit)
-                .addValue("email", str(body.get("email")))
-                .addValue("telefono", str(body.get("telefono")));
-
-        repo.jdbc().update("""
+        repo.jdbc().update(
+            """
             INSERT INTO locador (
                 tipo_persona,
                 razon_social,
@@ -254,14 +527,18 @@ public class ContractService {
             )
             VALUES (
                 'JURIDICA',
-                :razon,
+                :razonSocial,
                 :cuit,
                 :email,
                 :telefono,
                 1
             )
             """,
-            p,
+            new MapSqlParameterSource()
+                .addValue("razonSocial", razonSocial)
+                .addValue("cuit", cuit)
+                .addValue("email", str(body.get("email")))
+                .addValue("telefono", str(body.get("telefono"))),
             kh,
             new String[]{"id"}
         );
@@ -316,4 +593,490 @@ public class ContractService {
     private static String str(Object o) {
         return o == null ? null : o.toString();
     }
+
+private void validateCreateBody(Map<String, Object> body) throws BadRequestException {
+    //requireValidLong(body, "acreedorSapId");
+    requireValidInt(body, "tipoContratoId");
+
+    if (body.get("tipoFacturacion") == "mensual"){
+        requireValidDate(body, "fechaInicio");
+        requireValidDate(body, "fechaVencimiento");
+    }
+
+    body.put("localidadId", parseIntField(body, "localidadId")); 
+    body.put("regionId", parseIntField(body, "regionId")); 
+    body.put("indiceId", parseIntField(body, "indiceId"));
+
+    log.info("llega a pasar los int");
+    
+    requireValidString(body, "nis");
+    requireValidString(body, "denominacion");
+    requireValidString(body, "direccion");
+    requireValidInt(body, "localidadId");
+    requireValidInt(body, "regionId");
+    requireValidDecimal(body, "superficieCubierta");
+
+    requireValidDecimal(body, "importeTotal");
+    requireValidInt(body, "indiceId");
+    requireValidString(body, "periodicidad");
+    //requireValidInt(body, "tipoComprobanteId");
+    requireValidDecimal(body, "tolerancia");
+
+    if (body.containsKey("inmuebleId")) {
+        requireValidLong(body, "inmuebleId");
+    }
+
+    if (body.containsKey("razonSocial")) {
+        requireValidString(body, "razonSocial");
+    }
+
+    if (body.containsKey("cuit")) {
+
+        Object value = body.get("cuit");
+
+        if (value == null) {
+            throw new BadRequestException(
+                "El campo 'cuit' no puede ser null."
+            );
+        }
+
+        String cuit = String.valueOf(value).trim();
+
+        if (cuit.isEmpty()) {
+            throw new BadRequestException(
+                "El campo 'cuit' no puede estar vacío."
+            );
+        }
+
+        // Eliminar guiones si vienen en formato 30-12345678-9
+        cuit = cuit.replace("-", "").replace(" ", "");
+
+        // Verificar que solamente tenga números
+        if (!cuit.matches("\\d+")) {
+            throw new BadRequestException(
+                "El campo 'cuit' debe contener solamente números."
+            );
+        }
+
+        // Verificar exactamente 11 dígitos
+        if (cuit.length() != 11) {
+            throw new BadRequestException(
+                "El campo 'cuit' debe tener exactamente 11 dígitos."
+            );
+        }
+
+        try {
+            Long cuitNumero = Long.valueOf(cuit);
+
+            // Guardarlo convertido en el body
+            body.put("cuit", cuitNumero);
+
+        } catch (NumberFormatException e) {
+            throw new BadRequestException(
+                "El campo 'cuit' debe ser un número válido."
+            );
+        }
+    }
+
+
+    if (body.containsKey("locadorId")) {
+        requireValidLong(body, "locadorId");
+    }
+
+    
+    requireValidDecimal(body, "deposito");
+    
+
+    if (body.containsKey("observaciones")) {
+        requireValidString(body, "observaciones");
+    }
+
+    if (body.get("tipoFacturacion") == "mensual"){
+        LocalDate fechaInicio = parseDate(body.get("fechaInicio"), "fechaInicio");
+        LocalDate fechaVencimiento = parseDate(
+            body.get("fechaVencimiento"),
+            "fechaVencimiento"
+        );
+
+        if (fechaVencimiento.isBefore(fechaInicio)) {
+            throw new BadRequestException(
+                "La fecha de vencimiento no puede ser anterior a la fecha de inicio."
+            );
+        }
+    }
+
+    Object facturasObj = body.get("facturas");
+
+    if (facturasObj == null) {
+        throw new BadRequestException(
+            "El campo 'facturas' es obligatorio."
+        );
+    }
+
+    if (!(facturasObj instanceof List<?> facturas)) {
+        throw new BadRequestException(
+            "El campo 'facturas' debe ser una lista."
+        );
+    }
+
+    if (facturas.isEmpty()) {
+        throw new BadRequestException(
+            "Debe existir al menos una factura."
+        );
+    }
+
+    int totalPorcentaje = 0;
+
+    for (int i = 0; i < facturas.size(); i++) {
+
+        Object item = facturas.get(i);
+
+        if (!(item instanceof Map<?, ?> factura)) {
+            throw new BadRequestException(
+                "La factura en la posición " + i +
+                " no tiene un formato válido."
+            );
+        }
+
+        String porcentajeField = "facturas[" + i + "].porcentaje";
+        String importeField = "facturas[" + i + "].importe";
+
+        requireValidInt(factura, "porcentaje");
+        requireValidDecimal(factura, "importe");
+
+        Integer porcentaje = asInt(factura.get("porcentaje"));
+        BigDecimal importe = asDecimal(factura.get("importe"));
+
+        if (porcentaje < 0 || porcentaje > 100) {
+            throw new BadRequestException(
+                "El porcentaje de " + porcentajeField +
+                " debe estar entre 0 y 100."
+            );
+        }
+
+        if (importe.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BadRequestException(
+                "El importe de " + importeField +
+                " debe ser mayor o igual a 0."
+            );
+        }
+
+        totalPorcentaje += porcentaje;
+    }
+
+    if (totalPorcentaje != 100) {
+        throw new BadRequestException(
+            "La suma de los porcentajes de las facturas debe ser 100%."
+        );
+    }
+
+    log.info("hace todo");
+}
+
+private void requireValidString(
+        Map<?, ?> body,
+        String key) throws BadRequestException {
+
+    if (!body.containsKey(key)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' es obligatorio."
+        );
+    }
+
+    Object value = body.get(key);
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede ser null."
+        );
+    }
+
+    if (!(value instanceof String)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' debe ser texto."
+        );
+    }
+
+    if (((String) value).isBlank()) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede estar vacío."
+        );
+    }
+}
+
+private void requireValidLong(
+        Map<?, ?> body,
+        String key) throws BadRequestException {
+
+    if (!body.containsKey(key)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' es obligatorio."
+        );
+    }
+
+    Object value = body.get(key);
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede ser null."
+        );
+    }
+
+    try {
+        Long parsed = asLong(value);
+
+        if (parsed == null) {
+            throw new BadRequestException(
+                "El campo '" + key + "' no puede estar vacío."
+            );
+        }
+
+        if (parsed <= 0) {
+            throw new BadRequestException(
+                "El campo '" + key + "' debe ser mayor a 0."
+            );
+        }
+
+    } catch (BadRequestException e) {
+        throw e;
+    } catch (Exception e) {
+        throw new BadRequestException(
+            "El campo '" + key + "' debe ser un número válido."
+        );
+    }
+}
+
+private void requireValidInt(
+        Map<?, ?> body,
+        String key) throws BadRequestException {
+
+    if (!body.containsKey(key)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' es obligatorio."
+        );
+    }
+
+    Object value = body.get(key);
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede ser null."
+        );
+    }
+
+    try {
+        Integer parsed = asInt(value);
+
+        if (parsed == null) {
+            throw new BadRequestException(
+                "El campo '" + key + "' no puede estar vacío."
+            );
+        }
+
+    } catch (BadRequestException e) {
+        throw e;
+    } catch (Exception e) {
+        throw new BadRequestException(
+            "El campo '" + key + "' debe ser un número entero válido."
+        );
+    }
+}
+
+private void requireValidDecimal(
+        Map<?, ?> body,
+        String key) throws BadRequestException {
+
+    if (!body.containsKey(key)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' es obligatorio."
+        );
+    }
+
+    Object value = body.get(key);
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede ser null."
+        );
+    }
+
+    try {
+        BigDecimal parsed = asDecimal(value);
+
+        if (parsed == null) {
+            throw new BadRequestException(
+                "El campo '" + key + "' no puede estar vacío."
+            );
+        }
+
+    } catch (BadRequestException e) {
+        throw e;
+    } catch (Exception e) {
+        throw new BadRequestException(
+            "El campo '" + key + "' debe ser un número válido."
+        );
+    }
+}
+
+private void requireValidDate(
+        Map<?, ?> body,
+        String key) throws BadRequestException {
+
+    if (!body.containsKey(key)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' es obligatorio."
+        );
+    }
+
+    Object value = body.get(key);
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede ser null."
+        );
+    }
+
+    if (!(value instanceof String)) {
+        throw new BadRequestException(
+            "El campo '" + key + "' debe tener formato yyyy-MM-dd."
+        );
+    }
+
+    String text = ((String) value).trim();
+
+    if (text.isEmpty()) {
+        throw new BadRequestException(
+            "El campo '" + key + "' no puede estar vacío."
+        );
+    }
+
+    try {
+        LocalDate.parse(text);
+    } catch (DateTimeParseException e) {
+        throw new BadRequestException(
+            "El campo '" + key + "' debe tener una fecha válida con formato yyyy-MM-dd."
+        );
+    }
+}
+
+private LocalDate parseDate(
+        Object value,
+        String field) throws BadRequestException {
+
+    if (!(value instanceof String text) || text.isBlank()) {
+        throw new BadRequestException(
+            "El campo '" + field + "' debe contener una fecha válida."
+        );
+    }
+
+    try {
+        return LocalDate.parse(text.trim());
+    } catch (DateTimeParseException e) {
+        throw new BadRequestException(
+            "El campo '" + field + "' debe tener una fecha válida con formato yyyy-MM-dd."
+        );
+    }
+}
+
+
+    private void requirePresent(Map<?, ?> body, String key, String fieldName) throws BadRequestException {
+
+        if (!body.containsKey(key)) {
+            throw new BadRequestException(
+                "El campo '" + fieldName + "' es obligatorio."
+            );
+        }
+
+        Object value = body.get(key);
+
+        if (value == null) {
+            throw new BadRequestException(
+                "El campo '" + fieldName + "' no puede ser null."
+            );
+        }
+
+        if (value instanceof String s && s.isBlank()) {
+            throw new BadRequestException(
+                "El campo '" + fieldName + "' no puede estar vacío."
+            );
+        }
+    }
+
+
+private Integer parseIntField(
+        Map<String, Object> body,
+        String field) throws BadRequestException {
+
+    if (!body.containsKey(field)) {
+        throw new BadRequestException(
+            "El campo '" + field + "' es obligatorio."
+        );
+    }
+
+    Object value = body.get(field);
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo '" + field + "' no puede ser null."
+        );
+    }
+
+    if (value instanceof String s) {
+
+        s = s.trim();
+
+        if (s.isEmpty()) {
+            throw new BadRequestException(
+                "El campo '" + field + "' no puede estar vacío."
+            );
+        }
+
+        try {
+            return Integer.valueOf(s);
+
+        } catch (NumberFormatException e) {
+            throw new BadRequestException(
+                "El campo '" + field + "' debe ser un número entero válido."
+            );
+        }
+    }
+
+    if (value instanceof Number number) {
+        return number.intValue();
+    }
+
+    throw new BadRequestException(
+        "El campo '" + field + "' debe ser un número entero válido."
+    );
+}
+
+private String normalizeAndValidateCuit(Object value)
+        throws BadRequestException {
+
+    if (value == null) {
+        throw new BadRequestException(
+            "El campo 'cuit' no puede ser null."
+        );
+    }
+
+    String cuit = String.valueOf(value)
+        .trim()
+        .replace("-", "")
+        .replace(" ", "");
+
+    if (cuit.isEmpty()) {
+        throw new BadRequestException(
+            "El campo 'cuit' no puede estar vacío."
+        );
+    }
+
+    if (!cuit.matches("\\d{11}")) {
+        throw new BadRequestException(
+            "El campo 'cuit' debe contener exactamente 11 dígitos."
+        );
+    }
+
+    return cuit;
+}
+
 }
