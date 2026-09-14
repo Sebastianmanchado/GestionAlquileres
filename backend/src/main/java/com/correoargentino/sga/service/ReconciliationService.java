@@ -94,11 +94,13 @@ public class ReconciliationService {
             java.math.BigDecimal esperado = (java.math.BigDecimal) ct.get("esperado");
             if (esperado == null) esperado = java.math.BigDecimal.ZERO;
 
-            MapSqlParameterSource fp = new MapSqlParameterSource().addValue("c", contratoId).addValue("periodo", per);
+            // se quito los filtros por periodo
+            MapSqlParameterSource fp = new MapSqlParameterSource().addValue("c", contratoId);
+            
             java.math.BigDecimal facturado = repo.jdbc().queryForObject(
-                    "SELECT ISNULL(SUM(importe_total),0) FROM factura WHERE contrato_id=:c AND periodo_facturado=:periodo", fp, java.math.BigDecimal.class);
+                    "SELECT ISNULL(SUM(importe_total),0) FROM factura WHERE contrato_id=:c", fp, java.math.BigDecimal.class);
             int cnt = repo.jdbc().queryForObject(
-                    "SELECT COUNT(*) FROM factura WHERE contrato_id=:c AND periodo_facturado=:periodo", fp, Integer.class);
+                    "SELECT COUNT(*) FROM factura WHERE contrato_id=:c", fp, Integer.class);
 
             String estado;
             if (cnt == 0) estado = "SIN_FACTURA";
@@ -107,11 +109,11 @@ public class ReconciliationService {
             else estado = "CON_DIFERENCIA";
 
             MapSqlParameterSource up = new MapSqlParameterSource()
-                    .addValue("c", contratoId).addValue("periodo", per)
+                    .addValue("c", contratoId)
                     .addValue("esperado", esperado).addValue("facturado", facturado).addValue("estado", estado);
             int updated = repo.jdbc().update("""
                 UPDATE conciliacion SET importe_esperado=:esperado, importe_facturado=:facturado, estado=:estado
-                 WHERE contrato_id=:c AND periodo=:periodo
+                 WHERE contrato_id=:c
                 """, up);
             if (updated == 0) {
                 repo.jdbc().update("""
@@ -121,8 +123,44 @@ public class ReconciliationService {
             }
             procesadas++;
         }
+        
         audit.log("conciliacion", per.toString(), "EJECUTAR", "Ejecutó la conciliación del período " + per, "—", null, null);
         return procesadas;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> run2(String periodo) {
+
+        if (!currentUser.currentRole().canEdit()) {
+            throw new ForbiddenException(
+                "El rol actual no puede ejecutar la conciliación."
+            );
+        }
+
+        LocalDate per = periodo == null || periodo.isBlank()
+            ? latestPeriod()
+            : LocalDate.parse(periodo.substring(0, 10));
+
+        return repo.query(
+            """
+            SELECT
+                c.id,
+                c.contrato_id AS contratoId,
+                c.periodo,
+                c.importe_esperado AS esperado,
+                c.importe_facturado AS facturado,
+                c.diferencia,
+                c.estado,
+                c.comentario,
+                c.revisada_por AS revisadaPor,
+                c.revisada_en AS revisadaEn
+            FROM conciliacion c
+            WHERE c.periodo = :periodo
+            ORDER BY c.contrato_id
+            """,
+            new MapSqlParameterSource()
+                .addValue("periodo", per)
+        );
     }
 
     public Map<String, Object> detail(long id) {

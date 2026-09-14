@@ -591,13 +591,29 @@ async function save() {
             <input
               style={s.input}
               value={form.deposito ?? ''}
-              onChange={(e) => set('deposito', e.target.value)}
+              onChange={(e) =>
+                set('deposito', e.target.value)
+              }
               placeholder="$ 0"
             />
+          </F>
+
+          <F label="Tipo de moneda">
+            <select
+              style={s.input}
+              value={form.monedaDeposito ?? 'ARS'}
+              onChange={(e) =>
+                set('monedaDeposito', e.target.value)
+              }
+            >
+              <option value="ARS">ARS</option>
+              <option value="USD">USD</option>
+            </select>
           </F>
         </>
       ),
     },
+
   ];
 
   return (
