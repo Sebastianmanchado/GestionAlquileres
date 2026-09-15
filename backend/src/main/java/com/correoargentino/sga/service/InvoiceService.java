@@ -63,28 +63,83 @@ public class InvoiceService {
     }
 
     public List<Map<String, Object>> unassigned() {
+
         List<Map<String, Object>> rows = repo.query("""
-            SELECT f.id, f.cuit_emisor AS cuit, f.razon_social AS razonSocial,
-                   f.importe_total AS importe, f.periodo_facturado AS periodo, f.numero_comprobante AS comprobante
-              FROM factura f WHERE f.estado='SIN_ASIGNAR' ORDER BY f.periodo_facturado DESC, f.id
-            """, new MapSqlParameterSource());
+            SELECT
+                f.id,
+                f.cuit_emisor AS cuit,
+                f.razon_social AS razonSocial,
+                f.importe_total AS importe,
+                f.periodo_facturado AS periodo,
+                f.numero_comprobante AS comprobante
+            FROM factura f
+            WHERE f.estado = 'SIN_ASIGNAR'
+            ORDER BY f.periodo_facturado DESC, f.id
+            """,
+            new MapSqlParameterSource()
+        );
+
         for (Map<String, Object> r : rows) {
-            MapSqlParameterSource p = new MapSqlParameterSource("cuit", r.get("cuit"));
+
+            MapSqlParameterSource p =
+                new MapSqlParameterSource("cuit", r.get("cuit"));
+
             List<Map<String, Object>> sug = repo.query("""
-                SELECT TOP 5 i.nis, i.denominacion AS sucursal,
-                       (SELECT TOP 1 cv.importe_mensual FROM contrato_valor cv WHERE cv.contrato_id=c.id AND cv.vigencia_hasta IS NULL) AS monto,
-                       c.id AS contratoId
-                  FROM contrato c
-                  JOIN inmueble i ON i.id=c.inmueble_id
-                  JOIN locador lo ON lo.id=c.locador_id
-                  JOIN estado_contrato e ON e.id=c.estado_contrato_id
-                 WHERE lo.cuit=:cuit AND e.codigo<>'RESCINDIDO'
-                 ORDER BY i.nis
-                """, p);
+                SELECT TOP 5
+                    i.nis,
+                    i.denominacion AS sucursal,
+                    (
+                        SELECT TOP 1 cv.importe_mensual
+                        FROM contrato_valor cv
+                        WHERE cv.contrato_id = c.id
+                        AND cv.vigencia_hasta IS NULL
+                    ) AS monto,
+                    c.id AS contratoId
+                FROM contrato c
+                JOIN inmueble i
+                    ON i.id = c.inmueble_id
+                JOIN locador lo
+                    ON lo.id = c.locador_id
+                JOIN estado_contrato e
+                    ON e.id = c.estado_contrato_id
+                WHERE lo.cuit = :cuit
+                AND e.codigo <> 'RESCINDIDO'
+                ORDER BY i.nis
+                """,
+                p
+            );
+
+            if (sug.isEmpty()) {
+
+                sug = repo.query("""
+                    SELECT
+                        i.nis,
+                        i.denominacion AS sucursal,
+                        (
+                            SELECT TOP 1 cv.importe_mensual
+                            FROM contrato_valor cv
+                            WHERE cv.contrato_id = c.id
+                            AND cv.vigencia_hasta IS NULL
+                        ) AS monto,
+                        c.id AS contratoId
+                    FROM contrato c
+                    JOIN inmueble i
+                        ON i.id = c.inmueble_id
+                    JOIN estado_contrato e
+                        ON e.id = c.estado_contrato_id
+                    WHERE e.codigo <> 'RESCINDIDO'
+                    ORDER BY i.nis
+                    """,
+                    new MapSqlParameterSource()
+                );
+            }
+
             r.put("sugerencias", sug);
         }
+
         return rows;
     }
+
 
     public Map<String, Object> get(long id) {
         Map<String, Object> f = repo.queryOne("""
@@ -163,6 +218,95 @@ public class InvoiceService {
 
         long id = kh.getKey().longValue();
 
+        List<Long> locadorIds = repo.jdbc().query(
+            """
+            SELECT id
+            FROM locador
+            WHERE cuit = :cuit
+            """,
+            new MapSqlParameterSource()
+                .addValue("cuit", factura.cuit()),
+            (rs, rowNum) -> rs.getLong("id")
+        );
+
+        if (locadorIds.size() == 1) {
+
+            long locadorId = locadorIds.get(0);
+
+            List<Long> inmuebleIds = List.of();
+
+            if (factura.nis() != null
+                    && !factura.nis().isBlank()) {
+
+                inmuebleIds = repo.jdbc().query(
+                    """
+                    SELECT id
+                    FROM inmueble
+                    WHERE nis = :nis
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("nis", factura.nis()),
+                    (rs, rowNum) -> rs.getLong("id")
+                );
+            }
+
+            if (inmuebleIds.size() == 1) {
+
+                long inmuebleId = inmuebleIds.get(0);
+
+                repo.jdbc().update(
+                    """
+                    UPDATE factura
+                    SET inmueble_id = :inmuebleId
+                    WHERE id = :id
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("inmuebleId", inmuebleId)
+                        .addValue("id", id)
+                );
+
+                List<Long> contratoIds = repo.jdbc().query(
+                    """
+                    SELECT id
+                    FROM contrato
+                    WHERE locador_id = :locadorId
+                    AND inmueble_id = :inmuebleId
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("locadorId", locadorId)
+                        .addValue("inmuebleId", inmuebleId),
+                    (rs, rowNum) -> rs.getLong("id")
+                );
+
+                if (contratoIds.size() == 1) {
+
+                    long contratoId = contratoIds.get(0);
+
+                    assign(id, contratoId);
+                }
+
+            } else {
+
+                List<Long> contratoIds = repo.jdbc().query(
+                    """
+                    SELECT id
+                    FROM contrato
+                    WHERE locador_id = :locadorId
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("locadorId", locadorId),
+                    (rs, rowNum) -> rs.getLong("id")
+                );
+
+                if (contratoIds.size() == 1) {
+
+                    long contratoId = contratoIds.get(0);
+
+                    assign(id, contratoId);
+                }
+            }
+        }
+
         audit.log(
             "factura",
             String.valueOf(id),
@@ -175,6 +319,7 @@ public class InvoiceService {
 
         return id;
     }
+
 
     @Transactional
     public void update(long id, Map<String, Object> body)
@@ -214,6 +359,95 @@ public class InvoiceService {
             """,
             p
         );
+
+        List<Long> locadorIds = repo.jdbc().query(
+            """
+            SELECT id
+            FROM locador
+            WHERE cuit = :cuit
+            """,
+            new MapSqlParameterSource()
+                .addValue("cuit", factura.cuit()),
+            (rs, rowNum) -> rs.getLong("id")
+        );
+
+        if (locadorIds.size() == 1) {
+
+            long locadorId = locadorIds.get(0);
+
+            List<Long> inmuebleIds = List.of();
+
+            if (factura.nis() != null
+                    && !factura.nis().isBlank()) {
+
+                inmuebleIds = repo.jdbc().query(
+                    """
+                    SELECT id
+                    FROM inmueble
+                    WHERE nis = :nis
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("nis", factura.nis()),
+                    (rs, rowNum) -> rs.getLong("id")
+                );
+            }
+
+            if (inmuebleIds.size() == 1) {
+
+                long inmuebleId = inmuebleIds.get(0);
+
+                repo.jdbc().update(
+                    """
+                    UPDATE factura
+                    SET inmueble_id = :inmuebleId
+                    WHERE id = :id
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("inmuebleId", inmuebleId)
+                        .addValue("id", id)
+                );
+
+                List<Long> contratoIds = repo.jdbc().query(
+                    """
+                    SELECT id
+                    FROM contrato
+                    WHERE locador_id = :locadorId
+                    AND inmueble_id = :inmuebleId
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("locadorId", locadorId)
+                        .addValue("inmuebleId", inmuebleId),
+                    (rs, rowNum) -> rs.getLong("id")
+                );
+
+                if (contratoIds.size() == 1) {
+
+                    long contratoId = contratoIds.get(0);
+
+                    assign(id, contratoId);
+                }
+
+            } else {
+
+                List<Long> contratoIds = repo.jdbc().query(
+                    """
+                    SELECT id
+                    FROM contrato
+                    WHERE locador_id = :locadorId
+                    """,
+                    new MapSqlParameterSource()
+                        .addValue("locadorId", locadorId),
+                    (rs, rowNum) -> rs.getLong("id")
+                );
+
+                if (contratoIds.size() == 1) {
+
+                    long contratoId = contratoIds.get(0);
+
+                    assign(id, contratoId);
+                }
+            }
+        }
 
         audit.log(
             "factura",
@@ -450,6 +684,7 @@ public class InvoiceService {
 
 private record FacturaValidada(
     String cuit,
+    String nis,
     String razonSocial,
     String comprobante,
     String observaciones,
@@ -475,6 +710,8 @@ private FacturaValidada validarFactura(Map<String, Object> body)
     String razonSocial = requireString(body, "razonSocial");
 
     String comprobante = requireString(body, "comprobante");
+
+    String nis = (String) body.get("nis");
 
     String observaciones = requireString(body, "observaciones");
 
@@ -536,6 +773,7 @@ private FacturaValidada validarFactura(Map<String, Object> body)
 
     return new FacturaValidada(
         cuit,
+        nis,
         razonSocial,
         comprobante,
         observaciones,

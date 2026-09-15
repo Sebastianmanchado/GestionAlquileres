@@ -19,6 +19,11 @@ export function ConciliacionPeriodo() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [showSendModal, setShowSendModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showSendMenu, setShowSendMenu] = useState(false);
+
+  const [sendMode, setSendMode] = useState<
+    'selected' | 'all' | 'ok' | 'okDiff'
+  >('selected');
 
   const { data, loading, error, reload } = useAsync<any>(
     () =>
@@ -63,11 +68,15 @@ export function ConciliacionPeriodo() {
     );
   }
 
-  function abrirModalEnvio() {
-    if (selectedIds.length === 0) {
+  function abrirModalEnvio(
+    mode: 'selected' | 'all' | 'ok' | 'okDiff'
+  ) {
+    if (mode === 'selected' && selectedIds.length === 0) {
       return;
     }
 
+    setSendMode(mode);
+    setShowSendMenu(false);
     setShowSendModal(true);
   }
 
@@ -81,10 +90,34 @@ export function ConciliacionPeriodo() {
       )
     : data.rows;
 
-  const selectedRows = rows.filter(
-    (r: any) =>
-      selectedIds.includes(Number(r.id))
-  );
+  const rowsToSend = (() => {
+    switch (sendMode) {
+      case 'selected':
+        return data.rows.filter((r: any) =>
+          selectedIds.includes(Number(r.id))
+        );
+
+      case 'all':
+        return data.rows.filter(
+          (r: any) =>
+            r.estadoCodigo === 'OK' ||
+            r.estadoCodigo === 'OK_CON_DIF'
+        );
+
+      case 'ok':
+        return data.rows.filter(
+          (r: any) => r.estadoCodigo === 'OK'
+        );
+
+      case 'okDiff':
+        return data.rows.filter(
+          (r: any) => r.estadoCodigo === 'OK_CON_DIF'
+        );
+
+      default:
+        return [];
+    }
+  })();
 
   return (
     <div>
@@ -132,16 +165,122 @@ export function ConciliacionPeriodo() {
 
         {meta.canEdit && (
           <>
-            <button
-              style={s.btn}
-              disabled={
-                selectedIds.length === 0
-              }
-              onClick={abrirModalEnvio}
-            >
-              Enviar seleccionados
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button
+                style={{
+                  ...s.btn,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+                onClick={() =>
+                  setShowSendMenu((current) => !current)
+                }
+              >
+                Enviar
+                <span style={{ fontSize: 10 }}>▼</span>
+              </button>
 
+              {showSendMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    right: 0,
+                    minWidth: 230,
+                    background: c.bg,
+                    border: `1px solid ${c.line}`,
+                    borderRadius: 6,
+                    boxShadow:
+                      '0 6px 18px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                    overflow: 'hidden'
+                  }}
+                >
+                  <button
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      background: 'transparent',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      fontSize: 12.5,
+                      cursor:
+                        selectedIds.length === 0
+                          ? 'not-allowed'
+                          : 'pointer',
+                      color:
+                        selectedIds.length === 0
+                          ? c.muted2
+                          : c.text
+                    }}
+                    disabled={selectedIds.length === 0}
+                    onClick={() =>
+                      abrirModalEnvio('selected')
+                    }
+                  >
+                    Enviar seleccionados
+                  </button>
+
+                  <button
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      borderTop:
+                        `1px solid ${c.line}`,
+                      background: 'transparent',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      fontSize: 12.5,
+                      cursor: 'pointer'
+                    }}
+                    onClick={() =>
+                      abrirModalEnvio('all')
+                    }
+                  >
+                    Enviar todo
+                  </button>
+
+                  <button
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      borderTop:
+                        `1px solid ${c.line}`,
+                      background: 'transparent',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      fontSize: 12.5,
+                      cursor: 'pointer'
+                    }}
+                    onClick={() =>
+                      abrirModalEnvio('ok')
+                    }
+                  >
+                    Enviar todos los OK
+                  </button>
+
+                  <button
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      borderTop:
+                        `1px solid ${c.line}`,
+                      background: 'transparent',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      fontSize: 12.5,
+                      cursor: 'pointer'
+                    }}
+                    onClick={() =>
+                      abrirModalEnvio('okDiff')
+                    }
+                  >
+                    Enviar todos los OK con diferencia
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               style={s.btnPrimary}
               disabled={running}
@@ -503,7 +642,7 @@ export function ConciliacionPeriodo() {
                 padding: 18
               }}
             >
-              {selectedRows.length === 0 ? (
+              {rowsToSend.length === 0 ? (
                 <div
                   style={{
                     fontSize: 13,
@@ -522,8 +661,19 @@ export function ConciliacionPeriodo() {
                     marginBottom: 12
                   }}
                 >
-                  Se enviarán los siguientes contratos:
+                  {sendMode === 'selected' &&
+                    'Se enviarán los siguientes contratos seleccionados:'}
+
+                  {sendMode === 'all' &&
+                    'Se enviarán todos los contratos en estado OK y OK con diferencia:'}
+
+                  {sendMode === 'ok' &&
+                    'Se enviarán todos los contratos en estado OK:'}
+
+                  {sendMode === 'okDiff' &&
+                    'Se enviarán todos los contratos en estado OK con diferencia:'}
                 </div>
+
 
                 <div
                   style={{
@@ -533,7 +683,7 @@ export function ConciliacionPeriodo() {
                     maxHeight: 350
                   }}
                 >
-                  {selectedRows.map(
+                  {rowsToSend.map(
                     (r: any) => (
                       <div
                         key={r.id}

@@ -1,19 +1,20 @@
 package com.correoargentino.sga.service;
 
-import com.correoargentino.sga.repo.SgaRepository;
-import com.correoargentino.sga.security.CurrentUserProvider;
-import com.correoargentino.sga.web.ForbiddenException;
-import com.correoargentino.sga.web.NotFoundException;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.correoargentino.sga.repo.SgaRepository;
+import com.correoargentino.sga.security.CurrentUserProvider;
+import com.correoargentino.sga.web.ForbiddenException;
+import com.correoargentino.sga.web.NotFoundException;
 
 @Service
 public class ReconciliationService {
@@ -110,9 +111,9 @@ public class ReconciliationService {
 
             MapSqlParameterSource up = new MapSqlParameterSource()
                     .addValue("c", contratoId)
-                    .addValue("esperado", esperado).addValue("facturado", facturado).addValue("estado", estado);
+                    .addValue("esperado", esperado).addValue("facturado", facturado).addValue("estado", estado).addValue("periodo", per);
             int updated = repo.jdbc().update("""
-                UPDATE conciliacion SET importe_esperado=:esperado, importe_facturado=:facturado, estado=:estado
+                UPDATE conciliacion SET importe_esperado=:esperado, importe_facturado=:facturado
                  WHERE contrato_id=:c
                 """, up);
             if (updated == 0) {

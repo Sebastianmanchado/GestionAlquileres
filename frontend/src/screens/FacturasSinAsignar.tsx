@@ -13,6 +13,7 @@ export function FacturasSinAsignar() {
   const { navigate, meta, role } = useApp();
   const [expanded, setExpanded] = useState<number | null>(null);
   const { data, loading, error, reload } = useAsync<any[]>(() => api.get('/invoices/unassigned'), [role]);
+  const [nisFiltro, setNisFiltro] = useState('');
 
   async function assign(facturaId: number, contratoId: number) {
     console.log(getApiRole());
@@ -58,23 +59,137 @@ export function FacturasSinAsignar() {
                 </div>
               </div>
               {expanded === u.id && (
-                <div style={{ background: c.softBg, borderTop: `1px solid ${c.line}`, padding: '12px 16px', fontSize: 12.5 }}>
-                  <div style={{ color: c.muted, marginBottom: 8 }}>Sugerencias por CUIT / NIS:</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {u.sugerencias.map((sug: any) => (
-                      <div key={sug.contratoId} onClick={() => assign(u.id, sug.contratoId)} style={{
-                        border: `1px solid ${c.border}`, borderRadius: 4, padding: '8px 12px', background: '#fff', cursor: 'pointer',
-                        display: 'flex', flexDirection: 'column', gap: 3, minWidth: 150,
-                      }}>
-                        <div><span style={{ color: c.muted }}>NIS </span><span style={{ fontWeight: 600 }}>{sug.nis}</span></div>
-                        <div><span style={{ color: c.muted }}>Sucursal </span><span style={{ fontWeight: 600 }}>{sug.sucursal}</span></div>
-                        <div><span style={{ color: c.muted }}>Monto </span><span style={{ fontWeight: 600 }}>{money(sug.monto)}</span></div>
+                <div
+                  style={{
+                    background: c.softBg,
+                    borderTop: `1px solid ${c.line}`,
+                    padding: '12px 16px',
+                    fontSize: 12.5
+                  }}
+                >
+                  <div
+                    style={{
+                      color: c.muted,
+                      marginBottom: 8
+                    }}
+                  >
+                    Sugerencias por CUIT / NIS:
+                  </div>
+
+                  <input
+                    style={{
+                      ...s.input,
+                      width: 220,
+                      marginBottom: 10,
+                      fontSize: 12
+                    }}
+                    placeholder="Filtrar por NIS"
+                    value={nisFiltro}
+                    onChange={(e) =>
+                      setNisFiltro(e.target.value)
+                    }
+                  />
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 8,
+                      flexWrap: 'wrap'
+                    }}
+                  >
+                    {u.sugerencias
+                      .filter((sug: any) =>
+                        String(sug.nis ?? '')
+                          .toLowerCase()
+                          .includes(nisFiltro.toLowerCase())
+                      )
+                      .map((sug: any) => (
+                        <div
+                          key={sug.contratoId}
+                          onClick={() =>
+                            assign(u.id, sug.contratoId)
+                          }
+                          style={{
+                            border: `1px solid ${c.border}`,
+                            borderRadius: 4,
+                            padding: '8px 12px',
+                            background: '#fff',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 3,
+                            minWidth: 150
+                          }}
+                        >
+                          <div>
+                            <span
+                              style={{
+                                color: c.muted
+                              }}
+                            >
+                              NIS{' '}
+                            </span>
+
+                            <span
+                              style={{
+                                fontWeight: 600
+                              }}
+                            >
+                              {sug.nis}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span
+                              style={{
+                                color: c.muted
+                              }}
+                            >
+                              Sucursal{' '}
+                            </span>
+
+                            <span
+                              style={{
+                                fontWeight: 600
+                              }}
+                            >
+                              {sug.sucursal}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span
+                              style={{
+                                color: c.muted
+                              }}
+                            >
+                              Monto{' '}
+                            </span>
+
+                            <span
+                              style={{
+                                fontWeight: 600
+                              }}
+                            >
+                              {money(sug.monto)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+
+                    {u.sugerencias.length === 0 && (
+                      <div
+                        style={{
+                          color: c.muted2
+                        }}
+                      >
+                        Sin sugerencias automáticas para este CUIT.
                       </div>
-                    ))}
-                    {u.sugerencias.length === 0 && <div style={{ color: c.muted2 }}>Sin sugerencias automáticas para este CUIT.</div>}
+                    )}
                   </div>
                 </div>
               )}
+
             </div>
           ))}
         </div>

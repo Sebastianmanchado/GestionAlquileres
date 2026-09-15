@@ -75,17 +75,31 @@ export function DetalleFactura({
           'X-Role': 'ANALISTA',
         },
       })
-        .then((response) => {
+        .then(async (response) => {
           if (response.status === 404) {
             setDocumentExists(false);
             setExistingDocumentUrl(null);
+            setSelectedFile(null);
             return;
           }
 
           if (!response.ok) {
-            throw new Error('No se pudo cargar el documento de la factura.');
+            throw new Error(
+              'No se pudo cargar el documento de la factura.'
+            );
           }
 
+          const blob = await response.blob();
+
+          const file = new File(
+            [blob],
+            `factura_${id}.pdf`,
+            {
+              type: 'application/pdf',
+            }
+          );
+
+          setSelectedFile(file);
           setDocumentExists(true);
           setExistingDocumentUrl(url);
         })
@@ -93,9 +107,11 @@ export function DetalleFactura({
           console.error(e);
           setDocumentExists(false);
           setExistingDocumentUrl(null);
+          setSelectedFile(null);
         });
     }
   }, [id, esNueva]);
+
 
   useEffect(() => {
     return () => {
@@ -183,9 +199,16 @@ export function DetalleFactura({
         );
       }
 
+      const body = {
+        ...form,
+        nis: form.nis?.trim() || null,
+      };
+
+      console.log(body);
+
       const created = await api.post(
         '/invoices',
-        form
+        body
       );
 
       facturaId = created?.id;
@@ -202,9 +225,16 @@ export function DetalleFactura({
         );
       }
 
+      const body = {
+        ...form,
+        nis: form.nis?.trim() || null,
+      };
+
+      console.log(body)
+
       await api.put(
         `/invoices/${id}`,
-        form
+        body
       );
 
       facturaId = id;
@@ -645,6 +675,18 @@ export function DetalleFactura({
               />
             </Field>
 
+            <Field label="NIS (opcional)">
+              <input
+                style={s.input}
+                value={form.nis ?? ''}
+                onChange={(e) =>
+                  set('nis', e.target.value)
+                }
+                placeholder="Ingresar NIS"
+                disabled={!meta.canEdit}
+              />
+            </Field>
+
             <Field label="Contrato asignado">
               <input
                 style={{
@@ -658,6 +700,7 @@ export function DetalleFactura({
                 disabled
               />
             </Field>
+
 
             <Field label="Estado">
               <input
