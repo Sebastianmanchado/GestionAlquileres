@@ -23,7 +23,11 @@ const ROLES: { code: RoleCode; label: string }[] = [
   { code: 'AUDITOR', label: 'Auditor' },
 ];
 
-type Notif = { texto: string; tiempo: string };
+type Notif = {
+  id: number;
+  texto: string;
+  tiempo: string;
+};
 
 export function TopBar() {
   const { route, meta, role, setRole } = useApp();
@@ -32,10 +36,41 @@ export function TopBar() {
   const [notifs, setNotifs] = useState<Notif[]>([]);
 
   useEffect(() => {
-    api.get<{ notifications: Notif[] }>('/dashboard')
-      .then((d) => setNotifs(d.notifications ?? []))
-      .catch(() => setNotifs([]));
+    const cargarNotificaciones = () => {
+      api.get<{ notifications: Notif[] }>(
+        '/notifications'
+      )
+        .then((d) =>
+          setNotifs(d.notifications ?? [])
+        )
+        .catch(() => {});
+    };
+
+    cargarNotificaciones();
+
+    const interval = setInterval(
+      cargarNotificaciones,
+      10000
+    );
+
+    return () => clearInterval(interval);
   }, [role]);
+
+  async function deleteNotification(
+    id: number
+  ) {
+    try {
+      await api.del(
+        `/notifications/${id}`
+      );
+
+      setNotifs((current) =>
+        current.filter((n) => n.id !== id)
+      );
+    } catch (e: any) {
+      console.error(e);
+    }
+  }
 
   return (
     <div style={{
@@ -68,23 +103,114 @@ export function TopBar() {
           )}
         </div>
         {notifOpen && (
-          <div style={{
-            position: 'absolute', right: 0, top: 38, width: 300, background: '#fff',
-            border: `1px solid ${c.border}`, borderRadius: 4, boxShadow: '0 4px 14px rgba(0,0,0,.12)', zIndex: 20,
-          }}>
-            <div style={{ padding: '10px 14px', fontWeight: 700, borderBottom: `1px solid #eeece9`, fontSize: 12 }}>Notificaciones</div>
-            {notifs.map((n, i) => (
-              <div key={i} style={{ padding: '10px 14px', borderBottom: `1px solid ${c.line}`, display: 'flex', gap: 8 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#8a8985', marginTop: 5, flex: 'none' }} />
-                <div>
-                  <div style={{ fontSize: 12 }}>{n.texto}</div>
-                  <div style={{ fontSize: 10.5, color: c.muted2, marginTop: 2 }}>{n.tiempo}</div>
+          <div
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 38,
+              width: 320,
+              background: '#fff',
+              border: `1px solid ${c.border}`,
+              borderRadius: 4,
+              boxShadow:
+                '0 4px 14px rgba(0,0,0,.12)',
+              zIndex: 20,
+            }}
+          >
+            <div
+              style={{
+                padding: '10px 14px',
+                fontWeight: 700,
+                borderBottom: `1px solid #eeece9`,
+                fontSize: 12,
+              }}
+            >
+              Notificaciones
+            </div>
+
+            {notifs.map((n) => (
+              <div
+                key={n.id}
+                style={{
+                  padding: '10px 12px',
+                  borderBottom: `1px solid ${c.line}`,
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'flex-start',
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: '#8a8985',
+                    marginTop: 5,
+                    flex: 'none',
+                  }}
+                />
+
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                    }}
+                  >
+                    {n.texto}
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      color: c.muted2,
+                      marginTop: 2,
+                    }}
+                  >
+                    {n.tiempo}
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  title="Borrar notificación"
+                  onClick={() =>
+                    deleteNotification(n.id)
+                  }
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: c.muted2,
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    padding: '0 2px',
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
               </div>
             ))}
-            {notifs.length === 0 && <div style={{ padding: '10px 14px', fontSize: 12, color: c.muted2 }}>Sin notificaciones</div>}
+
+
+            {notifs.length === 0 && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  color: c.muted2,
+                }}
+              >
+                Sin notificaciones
+              </div>
+            )}
           </div>
         )}
+
       </div>
 
       <div style={{ position: 'relative' }}>

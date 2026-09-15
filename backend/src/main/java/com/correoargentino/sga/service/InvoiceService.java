@@ -31,13 +31,15 @@ public class InvoiceService {
     private final SgaRepository repo;
     private final AuditService audit;
     private final CurrentUserProvider currentUser;
+    private final NotificationService notificationService;
 
     private static final Logger log = LoggerFactory.getLogger(InvoiceService.class);
 
-    public InvoiceService(SgaRepository repo, AuditService audit, CurrentUserProvider currentUser) {
+    public InvoiceService(SgaRepository repo, AuditService audit, CurrentUserProvider currentUser, NotificationService notificationService) {
         this.repo = repo;
         this.audit = audit;
         this.currentUser = currentUser;
+        this.notificationService = notificationService;
     }
 
     private void requireEdit() {
@@ -218,6 +220,8 @@ public class InvoiceService {
 
         long id = kh.getKey().longValue();
 
+        boolean asignada = false;
+
         List<Long> locadorIds = repo.jdbc().query(
             """
             SELECT id
@@ -249,6 +253,7 @@ public class InvoiceService {
                     (rs, rowNum) -> rs.getLong("id")
                 );
             }
+
 
             if (inmuebleIds.size() == 1) {
 
@@ -283,10 +288,13 @@ public class InvoiceService {
                     long contratoId = contratoIds.get(0);
 
                     assign(id, contratoId);
+
+                    asignada = true;
                 }
 
             } else {
 
+  
                 List<Long> contratoIds = repo.jdbc().query(
                     """
                     SELECT id
@@ -303,6 +311,8 @@ public class InvoiceService {
                     long contratoId = contratoIds.get(0);
 
                     assign(id, contratoId);
+
+                    asignada = true;
                 }
             }
         }
@@ -317,8 +327,21 @@ public class InvoiceService {
             null
         );
 
+        if (!asignada) {
+
+            notificationService.create(
+                Map.of(
+                    "texto",
+                    "La factura de comprobante '"
+                        + factura.comprobante()
+                        + "' no pudo ser asignada automáticamente."
+                )
+            );
+        }
+
         return id;
     }
+
 
 
     @Transactional
@@ -486,6 +509,8 @@ public class InvoiceService {
             throw new NotFoundException("Contrato no encontrado");
         }
 
+        String nis = (String) contrato.get("nis");
+
         // =========================================================
         // 2. OBTENER FACTURA
         // =========================================================
@@ -494,7 +519,8 @@ public class InvoiceService {
             SELECT
                 id,
                 importe_total AS importeTotal,
-                periodo_facturado AS periodoFacturado
+                periodo_facturado AS periodoFacturado,
+                numero_comprobante
             FROM factura
             WHERE id = :id
             """,
@@ -518,6 +544,9 @@ public class InvoiceService {
                 "La factura no tiene un período facturado."
             );
         }
+
+        
+        String comprobante = (String) factura.get("numero_comprobante");
 
         // =========================================================
         // 3. OBTENER CONCILIACIÓN
@@ -614,6 +643,8 @@ public class InvoiceService {
         // =========================================================
         String ref =
             contrato.get("nis") + " · " + contrato.get("denom");
+
+        notificationService.create( Map.of( "texto", "La factura '" + comprobante + "' se asigno automaticamente al contrato con NIS '" + nis +"'") );
 
         audit.log(
             "factura",

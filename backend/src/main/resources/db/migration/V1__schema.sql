@@ -321,6 +321,13 @@ CREATE TABLE auditoria (
     CONSTRAINT fk_aud_usuario FOREIGN KEY (usuario_id) REFERENCES usuario(id)
 );
 
+CREATE TABLE notificacion (
+    id BIGINT NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    texto NVARCHAR(500) NOT NULL,
+    tiempo NVARCHAR(100) NULL,
+    creado_en DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+);
+
 /* ---------- Indices utiles ---------- */
 CREATE INDEX ix_contrato_estado      ON contrato(estado_contrato_id);
 CREATE INDEX ix_contrato_venc        ON contrato(fecha_vencimiento);
