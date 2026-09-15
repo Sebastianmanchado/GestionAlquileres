@@ -391,14 +391,10 @@ export function ConciliacionPeriodo() {
             r.estadoCodigo
           );
 
-          const puedeDiff =
-            r.estadoCodigo ===
-              'CON_DIFERENCIA' ||
-            r.estadoCodigo ===
-              'OK_CON_DIF';
+          const puedeDiff = r.estadoCodigo === 'CON_DIFERENCIA'
 
           const puedeEnviar =
-            r.estadoCodigo === 'OK';
+            r.estadoCodigo === 'OK' || r.estadoCodigo === 'OK_CON_DIF';
 
           const rowId = Number(r.id);
 
@@ -418,6 +414,7 @@ export function ConciliacionPeriodo() {
               style={{
                 display: 'grid',
                 gridTemplateColumns: GRID,
+                justifyContent: "center",
                 borderTop:
                   `1px solid ${c.line}`,
                 fontSize: 12.5,
@@ -453,7 +450,8 @@ export function ConciliacionPeriodo() {
               {/* NIS */}
               <div
                 style={{
-                  padding: '11px 12px'
+                  padding: '11px 12px',
+                  alignContent: "center"
                 }}
               >
                 {r.nis}
@@ -462,7 +460,8 @@ export function ConciliacionPeriodo() {
               {/* CONTRATO */}
               <div
                 style={{
-                  padding: '11px 12px'
+                  padding: '11px 12px',
+                  alignContent: "center"
                 }}
               >
                 <span
@@ -479,7 +478,8 @@ export function ConciliacionPeriodo() {
                     textDecoration:
                       'underline',
                     cursor: 'pointer',
-                    fontWeight: 600
+                    fontWeight: 600,
+                    alignContent: "center"
                   }}
                 >
                   {r.denom}
@@ -489,7 +489,8 @@ export function ConciliacionPeriodo() {
               {/* ESPERADO */}
               <div
                 style={{
-                  padding: '11px 12px'
+                  padding: '11px 12px',
+                  alignContent: "center"
                 }}
               >
                 {money(r.esperado)}
@@ -498,7 +499,8 @@ export function ConciliacionPeriodo() {
               {/* FACTURADO */}
               <div
                 style={{
-                  padding: '11px 12px'
+                  padding: '11px 12px',
+                  alignContent: "center"
                 }}
               >
                 {r.estadoCodigo ===
@@ -510,7 +512,8 @@ export function ConciliacionPeriodo() {
               {/* FACTURAS */}
               <div
                 style={{
-                  padding: '11px 12px'
+                  padding: '11px 12px',
+                  alignContent: "center"
                 }}
               >
                 {r.facturas_existentes +
@@ -522,7 +525,8 @@ export function ConciliacionPeriodo() {
               <div
                 style={{
                   padding: '11px 12px',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  alignContent: "center"
                 }}
               >
                 {money(r.diferencia)}
@@ -531,7 +535,8 @@ export function ConciliacionPeriodo() {
               {/* COMPROBANTE */}
               <div
                 style={{
-                  padding: '11px 12px'
+                  padding: '11px 12px',
+                  alignContent: "center"
                 }}
               >
                 {r.comprobante ?? '—'}
@@ -540,10 +545,11 @@ export function ConciliacionPeriodo() {
               {/* ESTADO */}
               <div
                 style={{
+                  display: 'grid',
+                  gridTemplateColumns: '70% 30%',
                   padding: '11px 12px',
-                  display: 'flex',
                   alignItems: 'center',
-                  gap: 8
+                  gap: 8,
                 }}
               >
                 <Badge
@@ -557,7 +563,9 @@ export function ConciliacionPeriodo() {
                       ...s.btnPrimary,
                       padding:
                         '5px 10px',
-                      fontSize: 11.5
+                      fontSize: 11.5,
+                      display: "flex",
+                      justifyContent: "center"
                     }}
                     onClick={(e) => {
                       e.stopPropagation();

@@ -189,6 +189,181 @@ BEGIN
     SET @i = @i + 1;
 END
 
+/* =========================================================================
+   Generación adicional de inmuebles + contratos B0601, B0602 y B0603
+   ========================================================================= */
+
+DECLARE @j INT = 0;
+
+WHILE @j < 3
+BEGIN
+    DECLARE @nisExtra NVARCHAR(40) =
+        N'B0' + CAST(601 + @j AS NVARCHAR(10));
+
+    DECLARE @regionIdExtra SMALLINT =
+        (@j % 5) + 1;
+
+    DECLARE @locIdExtra INT =
+        (@j % 10) + 1;
+
+    DECLARE @ccIdExtra INT =
+        @regionIdExtra;
+
+    DECLARE @destinoExtra SMALLINT =
+        CASE
+            WHEN @j = 0 THEN 2
+            ELSE 1
+        END;
+
+    DECLARE @supCubiertaExtra DECIMAL(12,2) =
+        540 + @j * 12;
+
+    INSERT INTO inmueble (
+        nis,
+        denominacion,
+        direccion,
+        localidad_id,
+        region_id,
+        centro_costo_id,
+        titulo_acreditante_id,
+        superficie_cubierta_m2,
+        superficie_terreno_m2,
+        responsable,
+        responsable_email,
+        responsable_telefono,
+        activo
+    )
+    VALUES (
+        @nisExtra,
+
+        CASE
+            WHEN @destinoExtra = 2
+                THEN N'CDD '
+            ELSE N'Sucursal '
+        END
+        + CHAR(65 + @j),
+
+        N'Av. Ejemplo '
+        + CAST(1300 + @j * 7 AS NVARCHAR(10)),
+
+        @locIdExtra,
+        @regionIdExtra,
+        @ccIdExtra,
+        (@j % 3) + 1,
+
+        @supCubiertaExtra,
+        @supCubiertaExtra * 1.6,
+
+        N'María Fernández',
+        N'maria.fernandez@correoargentino.com.ar',
+        N'011 4315-0800',
+        1
+    );
+
+    DECLARE @inmIdExtra BIGINT =
+        SCOPE_IDENTITY();
+
+ 
+    INSERT INTO inmueble_destino (
+        inmueble_id,
+        destino_id
+    )
+    VALUES (
+        @inmIdExtra,
+        @destinoExtra
+    );
+
+
+    DECLARE @locadorIdExtra BIGINT;
+    DECLARE @importeExtra DECIMAL(18,2);
+
+    IF @j = 0
+    BEGIN
+        -- B0601
+        SET @locadorIdExtra = 3;
+        SET @importeExtra = 289500.00;
+    END
+    ELSE IF @j = 1
+    BEGIN
+        -- B0602
+        SET @locadorIdExtra = 7;
+        SET @importeExtra = 361000.00;
+    END
+    ELSE
+    BEGIN
+        -- B0603
+        SET @locadorIdExtra = 8;
+        SET @importeExtra = 300000.00;
+    END;
+
+    DECLARE @acreedorIdExtra BIGINT =
+        @locadorIdExtra;
+
+    DECLARE @conIdExtra BIGINT;
+
+    INSERT INTO contrato (
+        numero,
+        inmueble_id,
+        locador_id,
+        acreedor_sap_id,
+        tipo_contrato_id,
+        estado_contrato_id,
+        fecha_inicio,
+        fecha_vencimiento,
+        moneda,
+        importe_inicial,
+        deposito_garantia,
+        indice_ajuste_id,
+        periodicidad_ajuste,
+        tipo_comprobante_id,
+        tolerancia_importe_pct,
+        observaciones,
+        cantidad_facturas
+    )
+    VALUES (
+        N'C-' + @nisExtra,
+        @inmIdExtra,
+        @locadorIdExtra,
+        @acreedorIdExtra,
+        1,
+        1,
+        '2023-07-01',
+        '2028-07-01',
+        'ARS',
+        @importeExtra,
+        @importeExtra * 2,
+        1,
+        N'TRIMESTRAL',
+        1,
+        3.0,
+        N'Contrato generado para la demo del MVP.',
+        1
+    );
+
+    SET @conIdExtra = SCOPE_IDENTITY();
+
+    INSERT INTO contrato_valor (
+        contrato_id,
+        vigencia_desde,
+        vigencia_hasta,
+        importe_mensual,
+        origen,
+        indice_id,
+        coeficiente_aplicado
+    )
+    VALUES (
+        @conIdExtra,
+        '2026-01-01',
+        NULL,
+        @importeExtra,
+        N'AJUSTE_INDICE',
+        1,
+        1.082
+    );
+
+    SET @j = @j + 1;
+END;
+
 /* ---------- Facturas por periodo (2026-04, 05, 06) para contratos ---------- */
 /* Corridas RPA que originan las facturas */
 INSERT INTO rpa_ejecucion (correlation_id, proveedor, periodo_desde, periodo_hasta, fecha_ejecucion, estado, facturas_recibidas, facturas_procesadas, facturas_con_error, payload_crudo) VALUES
@@ -209,11 +384,19 @@ DECLARE @razon NVARCHAR(200);
 DECLARE @rownum INT = 0;
 
 DECLARE cur CURSOR FOR
-  SELECT ct.id, cv.importe_mensual, lo.cuit, lo.razon_social
-  FROM contrato ct
-  JOIN contrato_valor cv ON cv.contrato_id = ct.id AND cv.vigencia_hasta IS NULL
-  JOIN locador lo ON lo.id = ct.locador_id
-  ORDER BY ct.id;
+    SELECT ct.id, cv.importe_mensual, lo.cuit, lo.razon_social
+    FROM contrato ct
+    JOIN contrato_valor cv
+        ON cv.contrato_id = ct.id
+       AND cv.vigencia_hasta IS NULL
+    JOIN locador lo
+        ON lo.id = ct.locador_id
+    WHERE ct.numero NOT IN (
+        N'C-B0601',
+        N'C-B0602',
+        N'C-B0603'
+    )
+    ORDER BY ct.id;
 OPEN cur;
 FETCH NEXT FROM cur INTO @c, @imp, @cuit, @razon;
 WHILE @@FETCH_STATUS = 0
@@ -277,7 +460,12 @@ LEFT JOIN (
     FROM factura
     WHERE contrato_id IS NOT NULL
     GROUP BY contrato_id
-) f ON f.contrato_id = c.id;
+) f ON f.contrato_id = c.id
+WHERE c.numero NOT IN (
+    N'C-B0601',
+    N'C-B0602',
+    N'C-B0603'
+);
 
 /* ---------- Conciliación del período 2026-06 ---------- */
 DECLARE @c2 BIGINT, @esp DECIMAL(18,2);
