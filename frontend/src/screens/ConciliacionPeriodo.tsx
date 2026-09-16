@@ -7,7 +7,7 @@ import { money, periodo as fmtPeriodo, estadoConciliacion } from '../format';
 import { useAsync } from '../hooks';
 import { Loading, ErrorBox } from './Dashboard';
 
-const GRID = '40px 100px 1fr 150px 150px 100px 130px 160px 170px';
+const GRID = '30px 80px 1fr 130px 130px 80px 110px 140px 150px';
 
 export function ConciliacionPeriodo() {
   const { navigate, meta, role } = useApp();
@@ -546,9 +546,10 @@ export function ConciliacionPeriodo() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '70% 30%',
+                  gridTemplateColumns: '65% 35%',
                   padding: '11px 12px',
                   alignItems: 'center',
+                  justifyContent: "center",
                   gap: 8,
                 }}
               >
