@@ -2,10 +2,13 @@ package com.correoargentino.sga.service;
 
 import com.correoargentino.sga.repo.SgaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.apache.coyote.BadRequestException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -14,10 +17,12 @@ public class RpaService {
 
     private final SgaRepository repo;
     private final ObjectMapper objectMapper;
+    private final InvoiceService invoiceService;
 
-    public RpaService(SgaRepository repo, ObjectMapper objectMapper) {
+    public RpaService(SgaRepository repo, ObjectMapper objectMapper, InvoiceService invoiceService) {
         this.repo = repo;
         this.objectMapper = objectMapper;
+        this.invoiceService = invoiceService;
     }
 
     public List<Map<String, Object>> runs() {
@@ -41,5 +46,76 @@ public class RpaService {
             r.put("errores", errores);
         }
         return rows;
+    }
+
+    public long crearFactura(
+            Map<String, Object> mock)
+            throws BadRequestException {
+
+        Map<String, Object> emisor =
+            (Map<String, Object>) mock.get("emisor");
+
+        Map<String, Object> comprobante =
+            (Map<String, Object>) mock.get("comprobante");
+
+        Map<String, Object> importes =
+            (Map<String, Object>)
+                comprobante.get("importes");
+
+        Map<String, Object> periodoFacturado =
+            (Map<String, Object>)
+                comprobante.get("periodoFacturado");
+
+        Map<String, Object> sucursalInmueble =
+            (Map<String, Object>)
+                mock.get("sucursalInmueble");
+
+
+        Map<String, Object> body = new HashMap<>();
+
+        body.put(
+            "cuit",
+            emisor.get("cuit")
+        );
+
+        body.put(
+            "nis",
+            sucursalInmueble.get("referencia")
+        );
+
+        body.put(
+            "razonSocial",
+            emisor.get("razonSocial")
+        );
+
+        body.put(
+            "comprobante",
+            comprobante.get("numero")
+        );
+
+        body.put(
+            "observaciones",
+            "TEST - Proveedor nuevo B0501"
+        );
+
+        body.put(
+            "importe",
+            importes.get("total")
+        );
+
+        String periodoDesde =
+            (String) periodoFacturado.get("desde");
+
+        body.put(
+            "periodo",
+            periodoDesde.substring(0, 7)
+        );
+
+        body.put(
+            "fechaEmision",
+            comprobante.get("fechaEmision")
+        );
+
+        return invoiceService.create(body);
     }
 }
