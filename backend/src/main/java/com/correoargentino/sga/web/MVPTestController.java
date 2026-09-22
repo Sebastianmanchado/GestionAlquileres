@@ -76,10 +76,6 @@ public class MVPTestController {
                     "cantidad", 1.00,
                     "unidadMedida", "mes"
                 )
-            ),
-
-            "sucursalInmueble", Map.of(
-                "referencia", "B0600"
             )
         );
 
@@ -99,7 +95,7 @@ public class MVPTestController {
         Map<String, Object> mock = Map.of(
             "emisor", Map.of(
                 "razonSocial", "Alquileres del Litoral SA",
-                "cuit", "30685412309", // CUIT existente
+                "cuit", "11111111111", // CUIT existente
                 "condicionIva", "RI"
             ),
 
@@ -142,10 +138,6 @@ public class MVPTestController {
                     "cantidad", 1.00,
                     "unidadMedida", "mes"
                 )
-            ),
-
-            "sucursalInmueble", Map.of(
-                "referencia", "B0601"
             )
         );
 
@@ -165,7 +157,7 @@ public class MVPTestController {
         Map<String, Object> mock = Map.of(
             "emisor", Map.of(
                 "razonSocial", "Propietario 2",
-                "cuit", "27284561238",
+                "cuit", "22222222222",
                 "condicionIva", "RI"
             ),
 
@@ -208,10 +200,6 @@ public class MVPTestController {
                     "cantidad", 1.00,
                     "unidadMedida", "mes"
                 )
-            ),
-
-            "sucursalInmueble", Map.of(
-                "referencia", "B0602"
             )
         );
 
@@ -231,7 +219,7 @@ public class MVPTestController {
         Map<String, Object> mock = Map.of(
             "emisor", Map.of(
                 "razonSocial", "Propietario 4",
-                "cuit", "30709182734",
+                "cuit", "33333333333",
                 "condicionIva", "RI"
             ),
 
@@ -274,10 +262,6 @@ public class MVPTestController {
                     "cantidad", 1.00,
                     "unidadMedida", "mes"
                 )
-            ),
-
-            "sucursalInmueble", Map.of(
-                "referencia", "B0603"
             )
         );
 

@@ -237,83 +237,29 @@ public class InvoiceService {
 
             long locadorId = locadorIds.get(0);
 
-            List<Long> inmuebleIds = List.of();
-
-            if (factura.nis() != null
-                    && !factura.nis().isBlank()) {
-
-                inmuebleIds = repo.jdbc().query(
-                    """
-                    SELECT id
-                    FROM inmueble
-                    WHERE nis = :nis
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("nis", factura.nis()),
-                    (rs, rowNum) -> rs.getLong("id")
-                );
-            }
+            List<Long> contratoIds = repo.jdbc().query(
+                """
+                SELECT id
+                FROM contrato
+                WHERE locador_id = :locadorId
+                AND :periodo >= fecha_inicio
+                AND :periodo <= fecha_vencimiento
+                """,
+                new MapSqlParameterSource()
+                    .addValue("locadorId", locadorId)
+                    .addValue("periodo", factura.periodo()),
+                (rs, rowNum) -> rs.getLong("id")
+            );
 
 
-            if (inmuebleIds.size() == 1) {
-
-                long inmuebleId = inmuebleIds.get(0);
-
-                repo.jdbc().update(
-                    """
-                    UPDATE factura
-                    SET inmueble_id = :inmuebleId
-                    WHERE id = :id
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("inmuebleId", inmuebleId)
-                        .addValue("id", id)
-                );
-
-                List<Long> contratoIds = repo.jdbc().query(
-                    """
-                    SELECT id
-                    FROM contrato
-                    WHERE locador_id = :locadorId
-                    AND inmueble_id = :inmuebleId
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("locadorId", locadorId)
-                        .addValue("inmuebleId", inmuebleId),
-                    (rs, rowNum) -> rs.getLong("id")
-                );
-
-                if (contratoIds.size() == 1) {
+            if (contratoIds.size() == 1) {
 
                     long contratoId = contratoIds.get(0);
 
                     assign(id, contratoId);
 
                     asignada = true;
-                }
-
-            } else {
-
-  
-                List<Long> contratoIds = repo.jdbc().query(
-                    """
-                    SELECT id
-                    FROM contrato
-                    WHERE locador_id = :locadorId
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("locadorId", locadorId),
-                    (rs, rowNum) -> rs.getLong("id")
-                );
-
-                if (contratoIds.size() == 1) {
-
-                    long contratoId = contratoIds.get(0);
-
-                    assign(id, contratoId);
-
-                    asignada = true;
-                }
+                
             }
         }
 
@@ -394,82 +340,33 @@ public class InvoiceService {
             (rs, rowNum) -> rs.getLong("id")
         );
 
+
+
         if (locadorIds.size() == 1) {
 
             long locadorId = locadorIds.get(0);
 
-            List<Long> inmuebleIds = List.of();
+            List<Long> contratoIds = repo.jdbc().query(
+                """
+                SELECT id
+                FROM contrato
+                WHERE locador_id = :locadorId
+                AND :periodo >= fecha_inicio
+                AND :periodo <= fecha_vencimiento
+                """,
+                new MapSqlParameterSource()
+                    .addValue("locadorId", locadorId)
+                    .addValue("periodo", factura.periodo()),
+                (rs, rowNum) -> rs.getLong("id")
+            );
 
-            if (factura.nis() != null
-                    && !factura.nis().isBlank()) {
-
-                inmuebleIds = repo.jdbc().query(
-                    """
-                    SELECT id
-                    FROM inmueble
-                    WHERE nis = :nis
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("nis", factura.nis()),
-                    (rs, rowNum) -> rs.getLong("id")
-                );
-            }
-
-            if (inmuebleIds.size() == 1) {
-
-                long inmuebleId = inmuebleIds.get(0);
-
-                repo.jdbc().update(
-                    """
-                    UPDATE factura
-                    SET inmueble_id = :inmuebleId
-                    WHERE id = :id
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("inmuebleId", inmuebleId)
-                        .addValue("id", id)
-                );
-
-                List<Long> contratoIds = repo.jdbc().query(
-                    """
-                    SELECT id
-                    FROM contrato
-                    WHERE locador_id = :locadorId
-                    AND inmueble_id = :inmuebleId
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("locadorId", locadorId)
-                        .addValue("inmuebleId", inmuebleId),
-                    (rs, rowNum) -> rs.getLong("id")
-                );
-
-                if (contratoIds.size() == 1) {
+            if (contratoIds.size() == 1) {
 
                     long contratoId = contratoIds.get(0);
 
                     assign(id, contratoId);
-                }
-
-            } else {
-
-                List<Long> contratoIds = repo.jdbc().query(
-                    """
-                    SELECT id
-                    FROM contrato
-                    WHERE locador_id = :locadorId
-                    """,
-                    new MapSqlParameterSource()
-                        .addValue("locadorId", locadorId),
-                    (rs, rowNum) -> rs.getLong("id")
-                );
-
-                if (contratoIds.size() == 1) {
-
-                    long contratoId = contratoIds.get(0);
-
-                    assign(id, contratoId);
-                }
             }
+            
         }
 
         audit.log(

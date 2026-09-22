@@ -34,10 +34,6 @@ public class TestService {
             (Map<String, Object>)
                 comprobante.get("periodoFacturado");
 
-        Map<String, Object> sucursalInmueble =
-            (Map<String, Object>)
-                mock.get("sucursalInmueble");
-
 
         Map<String, Object> body = new HashMap<>();
 
@@ -46,10 +42,6 @@ public class TestService {
             emisor.get("cuit")
         );
 
-        body.put(
-            "nis",
-            sucursalInmueble.get("referencia")
-        );
 
         body.put(
             "razonSocial",

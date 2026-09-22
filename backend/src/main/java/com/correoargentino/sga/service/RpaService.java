@@ -1,11 +1,15 @@
 package com.correoargentino.sga.service;
 
+import com.correoargentino.sga.dto.FacturaRequest;
 import com.correoargentino.sga.repo.SgaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.apache.coyote.BadRequestException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -14,10 +18,12 @@ public class RpaService {
 
     private final SgaRepository repo;
     private final ObjectMapper objectMapper;
+    private final InvoiceService invoiceService;
 
-    public RpaService(SgaRepository repo, ObjectMapper objectMapper) {
+    public RpaService(SgaRepository repo, ObjectMapper objectMapper, InvoiceService invoiceService) {
         this.repo = repo;
         this.objectMapper = objectMapper;
+        this.invoiceService = invoiceService;
     }
 
     public List<Map<String, Object>> runs() {
@@ -41,5 +47,63 @@ public class RpaService {
             r.put("errores", errores);
         }
         return rows;
+    }
+
+    public long crearFactura(FacturaRequest request)
+        throws BadRequestException {
+
+        FacturaRequest.Emisor emisor =
+            request.getEmisor();
+
+        FacturaRequest.Comprobante comprobante =
+            request.getComprobante();
+
+        FacturaRequest.Importes importes =
+            comprobante.getImportes();
+
+        FacturaRequest.PeriodoFacturado periodoFacturado =
+            comprobante.getPeriodoFacturado();
+
+        Map<String, Object> body = new HashMap<>();
+
+        body.put(
+            "cuit",
+            emisor.getCuit()
+        );
+
+        body.put(
+            "razonSocial",
+            emisor.getRazonSocial()
+        );
+
+        body.put(
+            "comprobante",
+            comprobante.getNumero()
+        );
+
+        body.put(
+            "observaciones",
+            "Factura enviada desde BOT"
+        );
+
+        body.put(
+            "importe", 
+            importes.getTotal()
+        );
+
+        String periodoDesde =
+            (String) periodoFacturado.getDesde();
+
+        body.put(
+            "periodo",
+            periodoDesde.substring(0, 7)
+        );
+
+        body.put(
+            "fechaEmision",
+            comprobante.getFechaEmision()
+        );
+
+        return invoiceService.create(body);
     }
 }
