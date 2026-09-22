@@ -686,50 +686,52 @@ export function ConciliacionPeriodo() {
 
                 <div
                   style={{
-                    border: `1px solid ${c.line}`,
-                    borderRadius: 6,
                     overflowY: 'auto',
-                    maxHeight: 350
+                    maxHeight: 350,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8
                   }}
                 >
-                  {rowsToSend.map(
-                    (r: any) => (
+                  {rowsToSend.map((r: any) => {
+                    const info = estadoConciliacion(r.estadoCodigo);
+                    const isOk = r.estadoCodigo === 'OK';
+                    const isOkDiff = r.estadoCodigo === 'OK_CON_DIF';
+                    const bg = isOk
+                      ? 'rgba(47, 107, 63, 0.14)'
+                      : isOkDiff
+                        ? 'rgba(217, 119, 6, 0.16)'
+                        : c.softBg;
+                    const border = isOk
+                      ? 'rgba(47, 107, 63, 0.28)'
+                      : isOkDiff
+                        ? 'rgba(217, 119, 6, 0.32)'
+                        : c.line;
+
+                    return (
                       <div
                         key={r.id}
                         style={{
-                          display: 'grid',
-                          gridTemplateColumns: '120px 1fr',
-                          borderTop: `1px solid ${c.line}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
                           padding: '10px 12px',
+                          borderRadius: 6,
+                          background: bg,
+                          border: `1px solid ${border}`,
                           fontSize: 13
                         }}
                       >
-                        <div
-                          style={{
-                            fontWeight: 600
-                          }}
-                        >
-                          NIS
-                        </div>
-
-                        <div>
-                          {r.nis}
-                        </div>
-
-                        <div
-                          style={{
-                            fontWeight: 600
-                          }}
-                        >
-                          Contrato
-                        </div>
-
-                        <div>
-                          {r.denom}
+                        <Badge label={info.label} tone={info.tone} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontWeight: 700 }}>NIS {r.nis}</div>
+                          <div style={{ fontSize: 12, color: c.muted, marginTop: 2 }}>
+                            {r.denom}
+                          </div>
                         </div>
                       </div>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
 
               </>

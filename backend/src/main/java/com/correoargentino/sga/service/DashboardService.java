@@ -23,7 +23,7 @@ public class DashboardService {
         var empty = new MapSqlParameterSource();
         Map<String, Object> out = new LinkedHashMap<>();
 
-        int vigentes = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='VIGENTE'");
+        int vigentes = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo IN ('VIGENTE','PROX_VENCER')");
         int prox = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='PROX_VENCER'");
         int vencidos = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='VENCIDO'");
         int totales = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo<>'RESCINDIDO'");
