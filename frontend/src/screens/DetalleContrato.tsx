@@ -25,6 +25,7 @@ export function DetalleContrato({ id }: { id: number }) {
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error} />;
   const d = data;
+  console.log(data)
   const est = estadoContrato(d.estadoCodigo, d.estadoNombre);
   const direccion = [d.direccion, d.localidad, d.provincia].filter(Boolean).join(', ');
 

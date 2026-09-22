@@ -584,14 +584,14 @@ public class InvoiceService {
         return o == null ? null : o.toString();
     }
 
-    private String requireString(Map<String, Object> body, String key) throws BadRequestException {
+    private String requireString(Map<String, Object> body, String key, String nombre_campo) throws BadRequestException {
         if (!body.containsKey(key)
                 || body.get(key) == null
                 || !(body.get(key) instanceof String value)
                 || value.isBlank()) {
 
             throw new BadRequestException(
-                "El campo '" + key + "' es obligatorio y debe tener contenido."
+                "El campo '" + nombre_campo + "' es obligatorio y debe tener contenido."
             );
         }
 
@@ -626,7 +626,7 @@ private record FacturaValidada(
 private FacturaValidada validarFactura(Map<String, Object> body)
         throws BadRequestException {
 
-    String cuit = requireString(body, "cuit");
+    String cuit = requireString(body, "cuit", "CUIT");
     cuit = cuit.replace("-", "").trim();
 
     if (cuit.length() < 11) {
@@ -635,13 +635,13 @@ private FacturaValidada validarFactura(Map<String, Object> body)
         );
     }
 
-    String razonSocial = requireString(body, "razonSocial");
+    String razonSocial = requireString(body, "razonSocial", "Razón Social");
 
-    String comprobante = requireString(body, "comprobante");
+    String comprobante = requireString(body, "comprobante", "Comprobante");
 
     String nis = (String) body.get("nis");
 
-    String observaciones = requireString(body, "observaciones");
+    String observaciones = (String) body.get("observaciones");
 
     BigDecimal total = asDecimal(body.get("importe"));
 

@@ -46,9 +46,6 @@ public class ContractService {
     public long create(Map<String, Object> body) throws BadRequestException {
         requireEdit();
 
-            
-        
-
         validateCreateBody(body);
 
         Long inmuebleId = asLong(body.get("inmuebleId"));
@@ -63,7 +60,7 @@ public class ContractService {
 
         if (body.containsKey("razonSocial") && body.containsKey("cuit")) {
 
-            requireValidString(body, "razonSocial");
+            requireValidString(body, "razonSocial", "Razón Social");
 
             String cuit = normalizeAndValidateCuit(body.get("cuit"));
 
@@ -77,7 +74,7 @@ public class ContractService {
 
             if (locadorId == null) {
                 throw new BadRequestException(
-                    "Debe indicar 'locadorId' o informar 'razonSocial' y 'cuit'."
+                    "Debe indicar el Locador o informar la Razon Social y CUIT."
                 );
             }
         }
@@ -95,16 +92,29 @@ public class ContractService {
             )
         );
 
-        log.info("pasa la fecha de inicio");
 
-        LocalDate venc = asDate(
-            body.getOrDefault(
-                "fechaVencimiento",
-                LocalDate.now().plusYears(3).toString()
-            )
-        );
+        int cantidadFacturas = asInt(body.getOrDefault("cantidad_facturas", 1));
 
-        log.info("pasa la vencimiento");
+        if (cantidadFacturas < 1) {
+            throw new BadRequestException(
+                "La cantidad de facturas debe ser mayor o igual a 1."
+            );
+        }
+
+        LocalDate venc;
+        Object vencBody = body.get("fechaVencimiento");
+
+        if (vencBody == null || str(vencBody).isBlank()) {
+            venc = inicio.plusMonths(cantidadFacturas);
+        } else {
+            venc = asDate(vencBody);
+        }
+
+        if (!venc.isAfter(inicio)) {
+            throw new BadRequestException(
+                "La fecha de vencimiento debe ser posterior a la fecha de inicio."
+            );
+        }
 
         BigDecimal importe = asDecimal(
             body.getOrDefault("importeTotal", 0)
@@ -114,11 +124,12 @@ public class ContractService {
 
         BigDecimal deposito = asDecimal(body.get("deposito"));
 
-        if (deposito.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BadRequestException(
-                "El deposito de " +
-                " debe ser mayor o igual a 0."
-            );
+        if (deposito != null){
+            if (deposito.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BadRequestException(
+                    "El deposito debe ser mayor o igual a 0."
+                );
+            }
         }
 
         BigDecimal tolerancia = asDecimal(
@@ -162,14 +173,13 @@ public class ContractService {
                 .addValue("periodicidad", str(body.getOrDefault("periodicidad", "TRIMESTRAL")))
                 .addValue("tipoComp", asInt(body.getOrDefault("tipoComprobanteId", 1)))
                 .addValue("tolerancia", tolerancia)
-                .addValue("obs", str(body.get("observaciones")))
                 .addValue("cantidad_facturas", asInt(body.getOrDefault("cantidad_facturas", 1)));
         repo.jdbc().update("""
             INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                                   fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
-                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones, cantidad_facturas)
+                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, cantidad_facturas)
             VALUES (:numero, :inmuebleId, :locadorId, :acreedorId, :tipoContrato, :estadoId,
-                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :obs, :cantidad_facturas)
+                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :cantidad_facturas)
             """, p, kh, new String[]{"id"});
         long contratoId = kh.getKey().longValue();
         log.info("se inserto contrato");
@@ -243,7 +253,7 @@ public class ContractService {
 
         if (body.containsKey("razonSocial") && body.containsKey("cuit")) {
 
-            requireValidString(body, "razonSocial");
+            requireValidString(body, "razonSocial", "Razón Social");
 
             String cuit = normalizeAndValidateCuit(body.get("cuit"));
 
@@ -257,7 +267,7 @@ public class ContractService {
 
             if (locadorId == null) {
                 throw new BadRequestException(
-                    "Debe indicar 'locadorId' o informar 'razonSocial' y 'cuit'."
+                    "Debe indicar el Locador o informar la Razón Social y CUIT."
                 );
             }
         }
@@ -276,7 +286,6 @@ public class ContractService {
         Integer tipoComprobanteId = asInt(body.get("tipoComprobanteId"));
 
         String periodicidad = str(body.get("periodicidad"));
-        String observaciones = str(body.get("observaciones"));
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> facturas =
@@ -302,7 +311,6 @@ public class ContractService {
             .addValue("periodicidad", periodicidad)
             .addValue("tipoComp", tipoComprobanteId)
             .addValue("tolerancia", tolerancia)
-            .addValue("obs", observaciones)
             .addValue("cantidadFacturas", facturas.size());
 
         repo.jdbc().update("""
@@ -321,7 +329,6 @@ public class ContractService {
                 periodicidad_ajuste = :periodicidad,
                 tipo_comprobante_id = :tipoComp,
                 tolerancia_importe_pct = :tolerancia,
-                observaciones = :obs,
                 cantidad_facturas = :cantidadFacturas
             WHERE id = :id
             """,
@@ -493,7 +500,7 @@ public class ContractService {
         String cuit = normalizeAndValidateCuit(body.get("cuit"));
         String razonSocial = str(body.get("razonSocial"));
 
-        requireValidString(body, "razonSocial");
+        requireValidString(body, "razonSocial", "Razón Social");
 
         // Verificar que no exista otro locador con el mismo CUIT
         Integer existe = repo.jdbc().queryForObject(
@@ -596,38 +603,37 @@ public class ContractService {
 
 private void validateCreateBody(Map<String, Object> body) throws BadRequestException {
     //requireValidLong(body, "acreedorSapId");
-    requireValidInt(body, "tipoContratoId");
+    requireValidInt(body, "tipoContratoId", "Tipo de Contrato");
 
     if (body.get("tipoFacturacion") == "mensual"){
-        requireValidDate(body, "fechaInicio");
-        requireValidDate(body, "fechaVencimiento");
+        requireValidDate(body, "fechaInicio", "Fecha de Inicio");
+        requireValidDate(body, "fechaVencimiento", "Fecha de Vencimiento");
     }
 
-    body.put("localidadId", parseIntField(body, "localidadId")); 
-    body.put("regionId", parseIntField(body, "regionId")); 
-    body.put("indiceId", parseIntField(body, "indiceId"));
+    body.put("localidadId", parseIntField(body, "localidadId", "Localidad")); 
+    body.put("regionId", parseIntField(body, "regionId", "Región")); 
+    body.put("indiceId", parseIntField(body, "indiceId", "Indice de Ajuste"));
 
     log.info("llega a pasar los int");
     
-    requireValidString(body, "nis");
-    requireValidString(body, "denominacion");
-    requireValidString(body, "direccion");
-    requireValidInt(body, "localidadId");
-    requireValidInt(body, "regionId");
-    requireValidDecimal(body, "superficieCubierta");
+    requireValidString(body, "nis", "NIS");
+    requireValidString(body, "denominacion", "Unidad de Negocio");
+    requireValidString(body, "direccion", "Dirección");
+    requireValidInt(body, "localidadId", "Localidad");
+    requireValidInt(body, "regionId", "Región");
 
-    requireValidDecimal(body, "importeTotal");
-    requireValidInt(body, "indiceId");
-    requireValidString(body, "periodicidad");
+    requireValidDecimal(body, "importeTotal", "Importe Total");
+    requireValidInt(body, "indiceId", "Indice de Ajuste");
+    requireValidString(body, "periodicidad", "Frecuencia");
     //requireValidInt(body, "tipoComprobanteId");
-    requireValidDecimal(body, "tolerancia");
+    requireValidDecimal(body, "tolerancia", "Tolerancia de Diferencia");
 
     if (body.containsKey("inmuebleId")) {
-        requireValidLong(body, "inmuebleId");
+        requireValidLong(body, "inmuebleId", "Inmueble");
     }
 
     if (body.containsKey("razonSocial")) {
-        requireValidString(body, "razonSocial");
+        requireValidString(body, "razonSocial", "Razon Social");
     }
 
     if (body.containsKey("cuit")) {
@@ -636,7 +642,7 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
 
         if (value == null) {
             throw new BadRequestException(
-                "El campo 'cuit' no puede ser null."
+                "El campo CUIT no puede ser null."
             );
         }
 
@@ -644,7 +650,7 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
 
         if (cuit.isEmpty()) {
             throw new BadRequestException(
-                "El campo 'cuit' no puede estar vacío."
+                "El campo CUIT no puede estar vacío."
             );
         }
 
@@ -654,14 +660,14 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
         // Verificar que solamente tenga números
         if (!cuit.matches("\\d+")) {
             throw new BadRequestException(
-                "El campo 'cuit' debe contener solamente números."
+                "El campo CUIT debe contener solamente números."
             );
         }
 
         // Verificar exactamente 11 dígitos
         if (cuit.length() != 11) {
             throw new BadRequestException(
-                "El campo 'cuit' debe tener exactamente 11 dígitos."
+                "El campo CUIT debe tener exactamente 11 dígitos."
             );
         }
 
@@ -673,29 +679,22 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
 
         } catch (NumberFormatException e) {
             throw new BadRequestException(
-                "El campo 'cuit' debe ser un número válido."
+                "El campo CUIT debe ser un número válido."
             );
         }
     }
 
 
     if (body.containsKey("locadorId")) {
-        requireValidLong(body, "locadorId");
-    }
-
-    
-    requireValidDecimal(body, "deposito");
-    
-
-    if (body.containsKey("observaciones")) {
-        requireValidString(body, "observaciones");
+        requireValidLong(body, "locadorId", "Locador");
     }
 
     if (body.get("tipoFacturacion") == "mensual"){
-        LocalDate fechaInicio = parseDate(body.get("fechaInicio"), "fechaInicio");
+        LocalDate fechaInicio = parseDate(body.get("fechaInicio"), "fechaInicio", "Fecha de Inicio");
         LocalDate fechaVencimiento = parseDate(
             body.get("fechaVencimiento"),
-            "fechaVencimiento"
+            "fechaVencimiento",
+            "Fecha de Vencimiento"
         );
 
         if (fechaVencimiento.isBefore(fechaInicio)) {
@@ -709,13 +708,13 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
 
     if (facturasObj == null) {
         throw new BadRequestException(
-            "El campo 'facturas' es obligatorio."
+            "Las facturas son obligatorias."
         );
     }
 
     if (!(facturasObj instanceof List<?> facturas)) {
         throw new BadRequestException(
-            "El campo 'facturas' debe ser una lista."
+            "Las facturas deben ser una lista."
         );
     }
 
@@ -741,8 +740,8 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
         String porcentajeField = "facturas[" + i + "].porcentaje";
         String importeField = "facturas[" + i + "].importe";
 
-        requireValidInt(factura, "porcentaje");
-        requireValidDecimal(factura, "importe");
+        requireValidInt(factura, "porcentaje", "Porcentaje de facturas");
+        requireValidDecimal(factura, "importe", "Importe");
 
         Integer porcentaje = asInt(factura.get("porcentaje"));
         BigDecimal importe = asDecimal(factura.get("importe"));
@@ -775,11 +774,12 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
 
 private void requireValidString(
         Map<?, ?> body,
-        String key) throws BadRequestException {
+        String key,
+        String nombre_campo) throws BadRequestException {
 
     if (!body.containsKey(key)) {
         throw new BadRequestException(
-            "El campo '" + key + "' es obligatorio."
+            "El campo '" + nombre_campo + "' es obligatorio."
         );
     }
 
@@ -787,30 +787,31 @@ private void requireValidString(
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede ser null."
+            "El campo '" + nombre_campo + "' no puede ser null."
         );
     }
 
     if (!(value instanceof String)) {
         throw new BadRequestException(
-            "El campo '" + key + "' debe ser texto."
+            "El campo '" + nombre_campo + "' debe ser texto."
         );
     }
 
     if (((String) value).isBlank()) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede estar vacío."
+            "El campo '" + nombre_campo + "' no puede estar vacío."
         );
     }
 }
 
 private void requireValidLong(
         Map<?, ?> body,
-        String key) throws BadRequestException {
+        String key,
+        String nombre_campo) throws BadRequestException {
 
     if (!body.containsKey(key)) {
         throw new BadRequestException(
-            "El campo '" + key + "' es obligatorio."
+            "El campo '" + nombre_campo + "' es obligatorio."
         );
     }
 
@@ -818,7 +819,7 @@ private void requireValidLong(
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede ser null."
+            "El campo '" + nombre_campo + "' no puede ser null."
         );
     }
 
@@ -827,13 +828,13 @@ private void requireValidLong(
 
         if (parsed == null) {
             throw new BadRequestException(
-                "El campo '" + key + "' no puede estar vacío."
+                "El campo '" + nombre_campo + "' no puede estar vacío."
             );
         }
 
         if (parsed <= 0) {
             throw new BadRequestException(
-                "El campo '" + key + "' debe ser mayor a 0."
+                "El campo '" + nombre_campo + "' debe ser mayor a 0."
             );
         }
 
@@ -841,18 +842,19 @@ private void requireValidLong(
         throw e;
     } catch (Exception e) {
         throw new BadRequestException(
-            "El campo '" + key + "' debe ser un número válido."
+            "El campo '" + nombre_campo + "' debe ser un número válido."
         );
     }
 }
 
 private void requireValidInt(
         Map<?, ?> body,
-        String key) throws BadRequestException {
+        String key,
+        String nombre_campo) throws BadRequestException {
 
     if (!body.containsKey(key)) {
         throw new BadRequestException(
-            "El campo '" + key + "' es obligatorio."
+            "El campo '" + nombre_campo + "' es obligatorio."
         );
     }
 
@@ -860,7 +862,7 @@ private void requireValidInt(
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede ser null."
+            "El campo '" + nombre_campo + "' no puede ser null."
         );
     }
 
@@ -869,7 +871,7 @@ private void requireValidInt(
 
         if (parsed == null) {
             throw new BadRequestException(
-                "El campo '" + key + "' no puede estar vacío."
+                "El campo '" + nombre_campo + "' no puede estar vacío."
             );
         }
 
@@ -877,18 +879,19 @@ private void requireValidInt(
         throw e;
     } catch (Exception e) {
         throw new BadRequestException(
-            "El campo '" + key + "' debe ser un número entero válido."
+            "El campo '" + nombre_campo + "' debe ser un número entero válido."
         );
     }
 }
 
 private void requireValidDecimal(
         Map<?, ?> body,
-        String key) throws BadRequestException {
+        String key,
+        String nombre_campo) throws BadRequestException {
 
     if (!body.containsKey(key)) {
         throw new BadRequestException(
-            "El campo '" + key + "' es obligatorio."
+            "El campo '" + nombre_campo + "' es obligatorio."
         );
     }
 
@@ -896,7 +899,7 @@ private void requireValidDecimal(
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede ser null."
+            "El campo '" + nombre_campo + "' no puede ser null."
         );
     }
 
@@ -905,7 +908,7 @@ private void requireValidDecimal(
 
         if (parsed == null) {
             throw new BadRequestException(
-                "El campo '" + key + "' no puede estar vacío."
+                "El campo '" + nombre_campo + "' no puede estar vacío."
             );
         }
 
@@ -913,18 +916,19 @@ private void requireValidDecimal(
         throw e;
     } catch (Exception e) {
         throw new BadRequestException(
-            "El campo '" + key + "' debe ser un número válido."
+            "El campo '" + nombre_campo + "' debe ser un número válido."
         );
     }
 }
 
 private void requireValidDate(
         Map<?, ?> body,
-        String key) throws BadRequestException {
+        String key,
+        String nombre_campo) throws BadRequestException {
 
     if (!body.containsKey(key)) {
         throw new BadRequestException(
-            "El campo '" + key + "' es obligatorio."
+            "El campo '" + nombre_campo + "' es obligatorio."
         );
     }
 
@@ -932,13 +936,13 @@ private void requireValidDate(
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede ser null."
+            "El campo '" + nombre_campo + "' no puede ser null."
         );
     }
 
     if (!(value instanceof String)) {
         throw new BadRequestException(
-            "El campo '" + key + "' debe tener formato yyyy-MM-dd."
+            "El campo '" + nombre_campo + "' debe tener formato yyyy-MM-dd."
         );
     }
 
@@ -946,7 +950,7 @@ private void requireValidDate(
 
     if (text.isEmpty()) {
         throw new BadRequestException(
-            "El campo '" + key + "' no puede estar vacío."
+            "El campo '" + nombre_campo + "' no puede estar vacío."
         );
     }
 
@@ -954,18 +958,19 @@ private void requireValidDate(
         LocalDate.parse(text);
     } catch (DateTimeParseException e) {
         throw new BadRequestException(
-            "El campo '" + key + "' debe tener una fecha válida con formato yyyy-MM-dd."
+            "El campo '" + nombre_campo + "' debe tener una fecha válida con formato yyyy-MM-dd."
         );
     }
 }
 
 private LocalDate parseDate(
         Object value,
-        String field) throws BadRequestException {
+        String field,
+        String nombre_campo) throws BadRequestException {
 
     if (!(value instanceof String text) || text.isBlank()) {
         throw new BadRequestException(
-            "El campo '" + field + "' debe contener una fecha válida."
+            "El campo '" + nombre_campo + "' debe contener una fecha válida."
         );
     }
 
@@ -973,43 +978,20 @@ private LocalDate parseDate(
         return LocalDate.parse(text.trim());
     } catch (DateTimeParseException e) {
         throw new BadRequestException(
-            "El campo '" + field + "' debe tener una fecha válida con formato yyyy-MM-dd."
+            "El campo '" + nombre_campo + "' debe tener una fecha válida con formato yyyy-MM-dd."
         );
     }
 }
 
 
-    private void requirePresent(Map<?, ?> body, String key, String fieldName) throws BadRequestException {
-
-        if (!body.containsKey(key)) {
-            throw new BadRequestException(
-                "El campo '" + fieldName + "' es obligatorio."
-            );
-        }
-
-        Object value = body.get(key);
-
-        if (value == null) {
-            throw new BadRequestException(
-                "El campo '" + fieldName + "' no puede ser null."
-            );
-        }
-
-        if (value instanceof String s && s.isBlank()) {
-            throw new BadRequestException(
-                "El campo '" + fieldName + "' no puede estar vacío."
-            );
-        }
-    }
-
-
 private Integer parseIntField(
         Map<String, Object> body,
-        String field) throws BadRequestException {
+        String field,
+        String nombre_campo) throws BadRequestException {
 
     if (!body.containsKey(field)) {
         throw new BadRequestException(
-            "El campo '" + field + "' es obligatorio."
+            "El campo '" + nombre_campo + "' es obligatorio."
         );
     }
 
@@ -1017,7 +999,7 @@ private Integer parseIntField(
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo '" + field + "' no puede ser null."
+            "El campo '" + nombre_campo + "' no puede ser null."
         );
     }
 
@@ -1027,7 +1009,7 @@ private Integer parseIntField(
 
         if (s.isEmpty()) {
             throw new BadRequestException(
-                "El campo '" + field + "' no puede estar vacío."
+                "El campo '" + nombre_campo + "' no puede estar vacío."
             );
         }
 
@@ -1036,7 +1018,7 @@ private Integer parseIntField(
 
         } catch (NumberFormatException e) {
             throw new BadRequestException(
-                "El campo '" + field + "' debe ser un número entero válido."
+                "El campo '" + nombre_campo + "' debe ser un número entero válido."
             );
         }
     }
@@ -1046,7 +1028,7 @@ private Integer parseIntField(
     }
 
     throw new BadRequestException(
-        "El campo '" + field + "' debe ser un número entero válido."
+        "El campo '" + nombre_campo + "' debe ser un número entero válido."
     );
 }
 
@@ -1055,7 +1037,7 @@ private String normalizeAndValidateCuit(Object value)
 
     if (value == null) {
         throw new BadRequestException(
-            "El campo 'cuit' no puede ser null."
+            "El campo CUIT no puede ser null."
         );
     }
 
@@ -1066,13 +1048,13 @@ private String normalizeAndValidateCuit(Object value)
 
     if (cuit.isEmpty()) {
         throw new BadRequestException(
-            "El campo 'cuit' no puede estar vacío."
+            "El campo CUIT no puede estar vacío."
         );
     }
 
     if (!cuit.matches("\\d{11}")) {
         throw new BadRequestException(
-            "El campo 'cuit' debe contener exactamente 11 dígitos."
+            "El campo CUIT debe contener exactamente 11 dígitos."
         );
     }
 

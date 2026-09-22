@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +22,11 @@ import java.util.Map;
 public class SgaRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private static final int ESTADO_VIGENTE     = 1;
+    private static final int ESTADO_PROX_VENCER = 2;
+    private static final int ESTADO_VENCIDO     = 3;
+    private static final int ESTADO_RESCINDIDO  = 4;
+    private static final int DIAS_PROX_VENCER   = 90;
 
     public SgaRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -96,8 +102,42 @@ public class SgaRepository {
          WHERE ec.id <> 4 /*FILTERS*/
         """;
 
+    private int recalcularEstadosContrato() {
+        MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("hoy",        java.sql.Date.valueOf(LocalDate.now()))
+                .addValue("dias",       DIAS_PROX_VENCER)
+                .addValue("vigente",    ESTADO_VIGENTE)
+                .addValue("prox",       ESTADO_PROX_VENCER)
+                .addValue("vencido",    ESTADO_VENCIDO)
+                .addValue("rescindido", ESTADO_RESCINDIDO);
+
+        String sql = """
+                UPDATE c
+                SET c.estado_contrato_id =
+                        CASE
+                            WHEN c.fecha_vencimiento < :hoy THEN :vencido
+                            WHEN DATEDIFF(DAY, :hoy, c.fecha_vencimiento) <= :dias THEN :prox
+                            ELSE :vigente
+                        END
+                FROM contrato c
+                WHERE c.estado_contrato_id <> :rescindido
+                AND c.fecha_vencimiento IS NOT NULL
+                AND c.estado_contrato_id <>
+                        CASE
+                            WHEN c.fecha_vencimiento < :hoy THEN :vencido
+                            WHEN DATEDIFF(DAY, :hoy, c.fecha_vencimiento) <= :dias THEN :prox
+                            ELSE :vigente
+                        END
+                """;
+
+        return jdbc.update(sql, p);
+    }
+
     public Map<String, Object> listContracts(String search, String region, String estado,
-                                             String indice, String venc, int page, int size) {
+                                            String indice, String venc, int page, int size) {
+
+        int estadosActualizados = recalcularEstadosContrato();
+
         StringBuilder where = new StringBuilder();
         MapSqlParameterSource p = new MapSqlParameterSource();
 
@@ -119,9 +159,18 @@ public class SgaRepository {
         }
         if (venc != null && !venc.isBlank()) {
             switch (venc) {
-                case "30" -> where.append(" AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,30,CAST(GETDATE() AS DATE))");
-                case "90" -> where.append(" AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,90,CAST(GETDATE() AS DATE))");
-                case "vencidos" -> where.append(" AND c.fecha_vencimiento < CAST(GETDATE() AS DATE)");
+                case "30" -> {
+                    where.append(" AND c.fecha_vencimiento BETWEEN :hoyF AND DATEADD(DAY,30,:hoyF)");
+                    p.addValue("hoyF", java.sql.Date.valueOf(LocalDate.now()));
+                }
+                case "90" -> {
+                    where.append(" AND c.fecha_vencimiento BETWEEN :hoyF AND DATEADD(DAY,90,:hoyF)");
+                    p.addValue("hoyF", java.sql.Date.valueOf(LocalDate.now()));
+                }
+                case "vencidos" -> {
+                    where.append(" AND c.fecha_vencimiento < :hoyF");
+                    p.addValue("hoyF", java.sql.Date.valueOf(LocalDate.now()));
+                }
                 default -> { }
             }
         }
@@ -135,7 +184,9 @@ public class SgaRepository {
                 "JOIN estado_contrato ec ON ec.id=c.estado_contrato_id " +
                 "JOIN locador lo ON lo.id=c.locador_id " +
                 "LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id " +
-                "WHERE ec.id <> 4" + where;
+                "WHERE ec.id <> :rescindido" + where;
+
+        p.addValue("rescindido", ESTADO_RESCINDIDO);
 
         Integer total = jdbc.queryForObject("SELECT COUNT(*) " + base, p, Integer.class);
 
@@ -151,6 +202,7 @@ public class SgaRepository {
         result.put("total", total == null ? 0 : total);
         result.put("page", page);
         result.put("size", size);
+        result.put("estadosActualizados", estadosActualizados);
         return result;
     }
 

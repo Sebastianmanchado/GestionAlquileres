@@ -126,13 +126,12 @@ INSERT INTO acreedor_sap (codigo_sap, locador_id, descripcion) VALUES
 /* =========================================================================
    1) INMUEBLES + CONTRATOS + VALORES + SEGUROS (40 contratos facturables)
    ========================================================================= */
-DECLARE @i          INT  = 0;
-DECLARE @N          INT  = 40;
-DECLARE @refDate    DATE = '2026-07-23';
+DECLARE @i       INT  = 0;
+DECLARE @N       INT  = 40;
+DECLARE @refDate DATE = '2026-07-23';
 
-/* Ids de los contratos que SI deben recibir facturas en esta corrida */
 IF OBJECT_ID('tempdb..#contratos_seed') IS NOT NULL DROP TABLE #contratos_seed;
-CREATE TABLE #contratos_seed (contrato_id BIGINT PRIMARY KEY, orden INT);
+CREATE TABLE #contratos_seed (contrato_id BIGINT PRIMARY KEY, orden INT, cant_facturas INT);
 
 DECLARE @nis          NVARCHAR(40);
 DECLARE @regionId     SMALLINT;
@@ -151,6 +150,7 @@ DECLARE @importe      DECIMAL(18,2);
 DECLARE @deposito     DECIMAL(18,2);
 DECLARE @inmId        BIGINT;
 DECLARE @conId        BIGINT;
+DECLARE @cantPlan     INT;
 
 WHILE @i < @N
 BEGIN
@@ -164,19 +164,20 @@ BEGIN
     SET @destino      = CASE WHEN @i % 4 = 0 THEN 2 ELSE 1 END;
     SET @indice       = (@i % 2) + 1;
 
-    -- estado igual a la logica del wireframe
+    -- facturas planificadas del contrato POR PERIODO: 1, 2 o 3
+    SET @cantPlan = (@i % 3) + 1;
+
     SET @estadoId = CASE WHEN @i % 5 = 0 THEN 3 WHEN @i % 3 = 0 THEN 2 ELSE 1 END;
     SET @venc = CASE
-        WHEN @estadoId = 3 THEN DATEADD(DAY, -(30 + @i), @refDate)         -- vencido
-        WHEN @estadoId = 2 THEN DATEADD(DAY, (15 + (@i % 60)), @refDate)   -- proximo a vencer
-        ELSE DATEADD(YEAR, 2, @refDate) END;                               -- vigente
+        WHEN @estadoId = 3 THEN DATEADD(DAY, -(30 + @i), @refDate)
+        WHEN @estadoId = 2 THEN DATEADD(DAY, (15 + (@i % 60)), @refDate)
+        ELSE DATEADD(YEAR, 2, @refDate) END;
     SET @inicio = DATEADD(YEAR, -3, @venc);
 
     SET @supCubierta = 60 + @i * 12;
     SET @importe     = 320000 + @i * 41000;
     SET @deposito    = @importe * 2;
 
-    -- Inmueble
     INSERT INTO inmueble (nis, denominacion, direccion, localidad_id, region_id, centro_costo_id, titulo_acreditante_id,
                           superficie_cubierta_m2, superficie_terreno_m2, responsable, responsable_email, responsable_telefono, activo)
     VALUES (@nis,
@@ -190,7 +191,6 @@ BEGIN
     INSERT INTO inmueble_destino (inmueble_id, destino_id) VALUES (@inmId, @destino);
     IF @i % 4 = 0 INSERT INTO inmueble_destino (inmueble_id, destino_id) VALUES (@inmId, 1);
 
-    -- Contrato
     INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                           fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
                           indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones, cantidad_facturas)
@@ -198,13 +198,11 @@ BEGIN
             @inmId, @locadorId, @acreedorId, @tipoContrato, @estadoId,
             @inicio, @venc, 'ARS', @importe * 0.78, @deposito,
             @indice, N'TRIMESTRAL', CASE WHEN @tipoContrato = 1 THEN 1 ELSE 2 END, 3.0,
-            N'Contrato generado para la demo del MVP.', 0);
+            N'Contrato generado para la demo del MVP.', @cantPlan);
     SET @conId = SCOPE_IDENTITY();
 
-    -- Solo estos contratos se facturan
-    INSERT INTO #contratos_seed (contrato_id, orden) VALUES (@conId, @i);
+    INSERT INTO #contratos_seed (contrato_id, orden, cant_facturas) VALUES (@conId, @i, @cantPlan);
 
-    -- Historial de valores (contrato_valor)
     INSERT INTO contrato_valor (contrato_id, vigencia_desde, vigencia_hasta, importe_mensual, origen, indice_id, coeficiente_aplicado) VALUES
       (@conId, '2025-01-01', '2025-03-31', @importe * 0.78, N'CONTRATO',      NULL,    NULL),
       (@conId, '2025-04-01', '2025-06-30', @importe * 0.83, N'AJUSTE_INDICE', @indice, 1.047),
@@ -212,7 +210,6 @@ BEGIN
       (@conId, '2025-10-01', '2025-12-31', @importe * 0.93, N'AJUSTE_INDICE', @indice, 1.061),
       (@conId, '2026-01-01', NULL,         @importe,        N'AJUSTE_INDICE', @indice, 1.082);
 
-    -- Seguro de caucion
     INSERT INTO contrato_seguro (contrato_id, tipo, nro_poliza, suma_asegurada, vigencia_hasta)
     VALUES (@conId, N'CAUCION', N'8' + CAST(8000 + @i AS NVARCHAR(10)), @importe * 3, '2026-12-31');
 
@@ -220,9 +217,7 @@ BEGIN
 END
 
 /* =========================================================================
-   2) CONTRATOS B0601 / B0602 / B0603  -  SIN FACTURAS (bandeja sin asignar)
-      No se agregan a #contratos_seed, por eso nunca reciben facturas.
-      cantidad_facturas arranca en 0 (antes se insertaba 1, incoherente).
+   2) CONTRATOS B0601 / B0602 / B0603  -  SIN FACTURAS
    ========================================================================= */
 DECLARE @j INT = 0;
 
@@ -259,9 +254,9 @@ BEGIN
 
     INSERT INTO inmueble_destino (inmueble_id, destino_id) VALUES (@inmIdExtra, @destinoExtra);
 
-    IF @j = 0      BEGIN SET @locadorIdExtra = 9;  SET @importeExtra = 289500.00; END   -- B0601
-    ELSE IF @j = 1 BEGIN SET @locadorIdExtra = 10; SET @importeExtra = 361000.00; END   -- B0602
-    ELSE           BEGIN SET @locadorIdExtra = 11; SET @importeExtra = 300000.00; END;  -- B0603
+    IF @j = 0      BEGIN SET @locadorIdExtra = 9;  SET @importeExtra = 289500.00; END
+    ELSE IF @j = 1 BEGIN SET @locadorIdExtra = 10; SET @importeExtra = 361000.00; END
+    ELSE           BEGIN SET @locadorIdExtra = 11; SET @importeExtra = 300000.00; END;
 
     SET @acreedorIdExtra = @locadorIdExtra;
 
@@ -280,7 +275,7 @@ BEGIN
 END;
 
 /* =========================================================================
-   3) CORRIDAS RPA  (se captura el id real con OUTPUT)
+   3) CORRIDAS RPA
    ========================================================================= */
 DECLARE @rpa TABLE (id BIGINT, periodo_desde DATE, estado NVARCHAR(40));
 
@@ -299,8 +294,20 @@ DECLARE @rpaJunio BIGINT =
     (SELECT MIN(id) FROM @rpa WHERE periodo_desde = '2026-06-01' AND estado = N'CON_ERRORES');
 
 /* =========================================================================
-   4) FACTURAS 2026-04 / 05 / 06  (solo contratos de #contratos_seed)
+   4) FACTURAS
+      @mesesHistoria = 1 -> solo 2026-06  (cantidad exacta por contrato)
+      @mesesHistoria = 3 -> agrega 2026-04 y 2026-05 como historia
    ========================================================================= */
+DECLARE @mesesHistoria INT = 1;          -- <<< CAMBIAR A 3 SI QUERES HISTORIA
+
+DECLARE @periodos TABLE (orden INT, periodo DATE, fecha_emision DATE, seq_base INT, es_conciliado BIT);
+INSERT INTO @periodos (orden, periodo, fecha_emision, seq_base, es_conciliado) VALUES
+ (1, '2026-06-01', '2026-06-05', 48000, 1),   -- periodo conciliado (siempre)
+ (2, '2026-05-01', '2026-05-04', 47500, 0),   -- solo si @mesesHistoria >= 2
+ (3, '2026-04-01', '2026-04-05', 47000, 0);   -- solo si @mesesHistoria >= 3
+
+DELETE FROM @periodos WHERE orden > @mesesHistoria;
+
 DECLARE @c      BIGINT;
 DECLARE @imp    DECIMAL(18,2);
 DECLARE @cuit   CHAR(11);
@@ -308,11 +315,31 @@ DECLARE @razon  NVARCHAR(200);
 DECLARE @inm    BIGINT;
 DECLARE @pv     INT = 3;
 DECLARE @cat    INT;
-DECLARE @impJun DECIMAL(18,2);
 DECLARE @rownum INT = 0;
 
+DECLARE @cantFact   INT;
+DECLARE @k          INT;
+DECLARE @pct        INT;
+DECLARE @acum       DECIMAL(18,2);
+DECLARE @impFact    DECIMAL(18,2);
+DECLARE @neto       DECIMAL(18,2);
+
+DECLARE @pOrden     INT;
+DECLARE @maxOrden   INT;
+DECLARE @periodo    DATE;
+DECLARE @fechaEmi   DATE;
+DECLARE @seqBase    INT;
+DECLARE @esConc     BIT;
+DECLARE @impPeriodo DECIMAL(18,2);
+DECLARE @tipoComp   SMALLINT;
+DECLARE @estadoFac  NVARCHAR(40);
+DECLARE @rpaId      BIGINT;
+DECLARE @seq        INT;
+
+SET @maxOrden = (SELECT MAX(orden) FROM @periodos);
+
 DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
-    SELECT ct.id, ct.inmueble_id, cv.importe_mensual, lo.cuit, lo.razon_social
+    SELECT ct.id, ct.inmueble_id, cv.importe_mensual, lo.cuit, lo.razon_social, s.cant_facturas
     FROM #contratos_seed s
     JOIN contrato ct       ON ct.id = s.contrato_id
     JOIN contrato_valor cv ON cv.contrato_id = ct.id AND cv.vigencia_hasta IS NULL
@@ -320,48 +347,82 @@ DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
     ORDER BY ct.id;
 
 OPEN cur;
-FETCH NEXT FROM cur INTO @c, @inm, @imp, @cuit, @razon;
+FETCH NEXT FROM cur INTO @c, @inm, @imp, @cuit, @razon, @cantFact;
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    -- categoria de junio: 0=sin factura, 1=OK, 2=OK con dif (<3%), 3=con dif (>3%)
+    -- categoria del periodo conciliado: 0=sin factura, 1=OK, 2=dif <3%, 3=dif >3%
     SET @cat = CASE WHEN @rownum % 9 = 7 THEN 0
                     WHEN @rownum % 4 = 2 THEN 3
                     WHEN @rownum % 4 = 1 THEN 2
                     ELSE 1 END;
 
-    -- Abril 2026 (coincide)
-    IF NOT EXISTS (SELECT 1 FROM factura WHERE contrato_id = @c AND periodo_facturado = '2026-04-01')
-    INSERT INTO factura (contrato_id, inmueble_id, cuit_emisor, razon_social, tipo_comprobante_id, punto_venta, numero_comprobante,
-                         fecha_emision, periodo_facturado, importe_neto, importe_iva, importe_total, cae, estado, origen, rpa_ejecucion_id)
-    VALUES (@c, @inm, @cuit, @razon, 1, @pv, N'0003-' + RIGHT('00000000' + CAST(47000 + @rownum AS NVARCHAR(10)), 8),
-            '2026-04-05','2026-04-01', @imp/1.21, @imp - (@imp/1.21), @imp,
-            N'7' + CAST(1234567890120 + @rownum AS NVARCHAR(20)), N'COINCIDE', N'RPA', NULL);
-
-    -- Mayo 2026 (coincide)
-    IF NOT EXISTS (SELECT 1 FROM factura WHERE contrato_id = @c AND periodo_facturado = '2026-05-01')
-    INSERT INTO factura (contrato_id, inmueble_id, cuit_emisor, razon_social, tipo_comprobante_id, punto_venta, numero_comprobante,
-                         fecha_emision, periodo_facturado, importe_neto, importe_iva, importe_total, cae, estado, origen, rpa_ejecucion_id)
-    VALUES (@c, @inm, @cuit, @razon, 1, @pv, N'0003-' + RIGHT('00000000' + CAST(47500 + @rownum AS NVARCHAR(10)), 8),
-            '2026-05-04','2026-05-01', @imp/1.21, @imp - (@imp/1.21), @imp,
-            N'7' + CAST(1234567895120 + @rownum AS NVARCHAR(20)), N'COINCIDE', N'RPA', NULL);
-
-    -- Junio 2026 (coincide / con diferencia menor o mayor / sin factura)
-    IF @cat <> 0
-       AND NOT EXISTS (SELECT 1 FROM factura WHERE contrato_id = @c AND periodo_facturado = '2026-06-01')
+    SET @pOrden = 1;
+    WHILE @pOrden <= @maxOrden
     BEGIN
-        SET @impJun = CASE @cat WHEN 3 THEN @imp * 0.94 WHEN 2 THEN @imp * 0.985 ELSE @imp END;
+        SELECT @periodo  = periodo,
+               @fechaEmi = fecha_emision,
+               @seqBase  = seq_base,
+               @esConc   = es_conciliado
+        FROM @periodos WHERE orden = @pOrden;
 
-        INSERT INTO factura (contrato_id, inmueble_id, cuit_emisor, razon_social, tipo_comprobante_id, punto_venta, numero_comprobante,
-                             fecha_emision, periodo_facturado, importe_neto, importe_iva, importe_total, cae, estado, origen, rpa_ejecucion_id)
-        VALUES (@c, @inm, @cuit, @razon, CASE WHEN @cat = 3 THEN 2 ELSE 1 END, @pv,
-                N'0003-' + RIGHT('00000000' + CAST(48000 + @rownum AS NVARCHAR(10)), 8),
-                '2026-06-05','2026-06-01', @impJun/1.21, @impJun - (@impJun/1.21), @impJun,
-                N'7' + CAST(1234567898120 + @rownum AS NVARCHAR(20)),
-                CASE WHEN @cat = 3 THEN N'CON_DIFERENCIA' ELSE N'COINCIDE' END, N'RPA', @rpaJunio);
+        IF @esConc = 1
+        BEGIN
+            SET @impPeriodo = CASE @cat WHEN 3 THEN @imp * 0.94
+                                        WHEN 2 THEN @imp * 0.985
+                                        ELSE @imp END;
+            SET @tipoComp  = CASE WHEN @cat = 3 THEN 2 ELSE 1 END;
+            SET @estadoFac = CASE WHEN @cat = 3 THEN N'CON_DIFERENCIA' ELSE N'COINCIDE' END;
+            SET @rpaId     = @rpaJunio;
+        END
+        ELSE
+        BEGIN
+            SET @impPeriodo = @imp;
+            SET @tipoComp   = 1;
+            SET @estadoFac  = N'COINCIDE';
+            SET @rpaId      = NULL;
+        END
+
+        IF NOT (@esConc = 1 AND @cat = 0)
+           AND NOT EXISTS (SELECT 1 FROM factura WHERE contrato_id = @c AND periodo_facturado = @periodo)
+        BEGIN
+            SET @acum = 0;
+            SET @k    = 1;
+
+            WHILE @k <= @cantFact
+            BEGIN
+                -- 1 -> 100 | 2 -> 50,50 | 3 -> 34,33,33
+                SET @pct = CASE WHEN @k = 1
+                                THEN 100 - (100 / @cantFact) * (@cantFact - 1)
+                                ELSE 100 / @cantFact END;
+
+                -- la ultima factura absorbe el residuo: la suma cierra exacta
+                SET @impFact = CASE WHEN @k = @cantFact
+                                    THEN @impPeriodo - @acum
+                                    ELSE ROUND(@impPeriodo * @pct / 100.0, 2) END;
+
+                SET @acum = @acum + @impFact;
+                SET @neto = ROUND(@impFact / 1.21, 2);
+                SET @seq  = @seqBase + (@rownum * 4) + @k;
+
+                INSERT INTO factura (contrato_id, inmueble_id, cuit_emisor, razon_social, tipo_comprobante_id, punto_venta,
+                                     numero_comprobante, fecha_emision, periodo_facturado,
+                                     importe_neto, importe_iva, importe_total, cae, estado, origen, rpa_ejecucion_id)
+                VALUES (@c, @inm, @cuit, @razon, @tipoComp, @pv,
+                        N'0003-' + RIGHT('00000000' + CAST(@seq AS NVARCHAR(10)), 8),
+                        @fechaEmi, @periodo,
+                        @neto, @impFact - @neto, @impFact,
+                        N'7' + CAST(1234567890000 + @seq AS NVARCHAR(20)),
+                        @estadoFac, N'RPA', @rpaId);
+
+                SET @k = @k + 1;
+            END
+        END
+
+        SET @pOrden = @pOrden + 1;
     END
 
     SET @rownum = @rownum + 1;
-    FETCH NEXT FROM cur INTO @c, @inm, @imp, @cuit, @razon;
+    FETCH NEXT FROM cur INTO @c, @inm, @imp, @cuit, @razon, @cantFact;
 END
 CLOSE cur;
 DEALLOCATE cur;
@@ -379,7 +440,9 @@ INSERT INTO factura (cuit_emisor, razon_social, tipo_comprobante_id, punto_venta
  ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio);
 
 /* =========================================================================
-   6) CANTIDAD DE FACTURAS POR CONTRATO  (sin NOT IN: aplica a todos)
+   6) CANTIDAD DE FACTURAS POR CONTRATO
+      Se cuenta SOLO el periodo conciliado: cantidad_facturas representa las
+      facturas por periodo, no el acumulado historico.
    ========================================================================= */
 UPDATE c
 SET c.cantidad_facturas = ISNULL(f.cantidad, 0)
@@ -388,6 +451,7 @@ LEFT JOIN (
     SELECT contrato_id, COUNT(*) AS cantidad
     FROM factura
     WHERE contrato_id IS NOT NULL
+      AND periodo_facturado = '2026-06-01'
     GROUP BY contrato_id
 ) f ON f.contrato_id = c.id;
 
@@ -432,19 +496,15 @@ BEGIN
             CASE WHEN @estadoConc = N'CON_DIFERENCIA' THEN '2026-06-12T10:41:00' ELSE NULL END);
     SET @concId = SCOPE_IDENTITY();
 
-    -- vincular facturas del periodo
     INSERT INTO conciliacion_factura (conciliacion_id, factura_id)
     SELECT @concId, id
     FROM factura
     WHERE contrato_id = @c2 AND periodo_facturado = @concPeriodo;
 
-    -- registrar diferencias
     IF @estadoConc IN (N'CON_DIFERENCIA', N'OK_CON_DIF')
     BEGIN
-        -- reset obligatorio: las variables son de batch y arrastran el valor anterior
         SET @fid = NULL;
 
-        -- sin filtrar por estado: en OK_CON_DIF la factura esta marcada COINCIDE
         SELECT @fid = MIN(id)
         FROM factura
         WHERE contrato_id = @c2 AND periodo_facturado = @concPeriodo;

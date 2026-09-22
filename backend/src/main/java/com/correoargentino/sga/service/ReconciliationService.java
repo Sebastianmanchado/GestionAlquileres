@@ -1,5 +1,7 @@
 package com.correoargentino.sga.service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -79,43 +81,68 @@ public class ReconciliationService {
         if (!currentUser.currentRole().canEdit()) {
             throw new ForbiddenException("El rol actual no puede ejecutar la conciliación.");
         }
-        LocalDate per = periodo == null || periodo.isBlank() ? latestPeriod() : LocalDate.parse(periodo.substring(0, 10));
-        MapSqlParameterSource pp = new MapSqlParameterSource("periodo", per);
+        LocalDate per = periodo == null || periodo.isBlank()
+                ? latestPeriod()
+                : LocalDate.parse(periodo.substring(0, 10));
 
         List<Map<String, Object>> contratos = repo.query("""
             SELECT c.id AS contratoId,
-                   (SELECT TOP 1 cv.importe_mensual FROM contrato_valor cv WHERE cv.contrato_id=c.id AND cv.vigencia_hasta IS NULL) AS esperado
-              FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id
-             WHERE e.codigo <> 'RESCINDIDO'
+                c.tolerancia_importe_pct AS tolerancia,
+                (SELECT TOP 1 cv.importe_mensual
+                    FROM contrato_valor cv
+                    WHERE cv.contrato_id = c.id
+                    AND cv.vigencia_hasta IS NULL) AS esperado
+            FROM contrato c
+            JOIN estado_contrato e ON e.id = c.estado_contrato_id
+            WHERE e.codigo <> 'RESCINDIDO'
             """, new MapSqlParameterSource());
 
         int procesadas = 0;
         for (Map<String, Object> ct : contratos) {
             Long contratoId = ((Number) ct.get("contratoId")).longValue();
-            java.math.BigDecimal esperado = (java.math.BigDecimal) ct.get("esperado");
-            if (esperado == null) esperado = java.math.BigDecimal.ZERO;
 
-            // se quito los filtros por periodo
+            BigDecimal esperado = (BigDecimal) ct.get("esperado");
+            if (esperado == null) esperado = BigDecimal.ZERO;
+
+            BigDecimal toleranciaPct = (BigDecimal) ct.get("tolerancia");
+            if (toleranciaPct == null) toleranciaPct = BigDecimal.ZERO;
+
             MapSqlParameterSource fp = new MapSqlParameterSource().addValue("c", contratoId);
-            
-            java.math.BigDecimal facturado = repo.jdbc().queryForObject(
-                    "SELECT ISNULL(SUM(importe_total),0) FROM factura WHERE contrato_id=:c", fp, java.math.BigDecimal.class);
+
+            BigDecimal facturado = repo.jdbc().queryForObject(
+                    "SELECT ISNULL(SUM(importe_total),0) FROM factura WHERE contrato_id=:c",
+                    fp, BigDecimal.class);
             int cnt = repo.jdbc().queryForObject(
-                    "SELECT COUNT(*) FROM factura WHERE contrato_id=:c", fp, Integer.class);
+                    "SELECT COUNT(*) FROM factura WHERE contrato_id=:c",
+                    fp, Integer.class);
+
+            BigDecimal margen = esperado.abs()
+                    .multiply(toleranciaPct)
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+            BigDecimal desvio = facturado.subtract(esperado).abs();
 
             String estado;
-            if (cnt == 0) estado = "SIN_FACTURA";
-            else if (facturado.compareTo(esperado) == 0) estado = "OK";
-            else if (facturado.subtract(esperado).abs().compareTo(esperado.multiply(new java.math.BigDecimal("0.03"))) <= 0) estado = "OK_CON_DIF";
-            else estado = "CON_DIFERENCIA";
+            if (cnt == 0)                                  estado = "SIN_FACTURA";
+            else if (facturado.compareTo(esperado) == 0)   estado = "OK";
+            else if (desvio.compareTo(margen) <= 0)        estado = "OK_CON_DIF";
+            else                                           estado = "CON_DIFERENCIA";
 
             MapSqlParameterSource up = new MapSqlParameterSource()
                     .addValue("c", contratoId)
-                    .addValue("esperado", esperado).addValue("facturado", facturado).addValue("estado", estado).addValue("periodo", per);
+                    .addValue("esperado", esperado)
+                    .addValue("facturado", facturado)
+                    .addValue("estado", estado)
+                    .addValue("periodo", per);
+
             int updated = repo.jdbc().update("""
-                UPDATE conciliacion SET importe_esperado=:esperado, importe_facturado=:facturado
-                 WHERE contrato_id=:c
+                UPDATE conciliacion
+                SET importe_esperado  = :esperado,
+                    importe_facturado = :facturado,
+                    estado            = :estado
+                WHERE contrato_id = :c
                 """, up);
+
             if (updated == 0) {
                 repo.jdbc().update("""
                     INSERT INTO conciliacion (contrato_id, periodo, importe_esperado, importe_facturado, estado)
@@ -124,8 +151,9 @@ public class ReconciliationService {
             }
             procesadas++;
         }
-        
-        audit.log("conciliacion", per.toString(), "EJECUTAR", "Ejecutó la conciliación del período " + per, "—", null, null);
+
+        audit.log("conciliacion", per.toString(), "EJECUTAR",
+                "Ejecutó la conciliación del período " + per, "—", null, null);
         return procesadas;
     }
 
