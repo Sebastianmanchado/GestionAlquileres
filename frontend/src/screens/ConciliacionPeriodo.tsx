@@ -83,6 +83,8 @@ export function ConciliacionPeriodo() {
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox msg={error} />;
 
+  console.log(data)
+
   const rows = estadoFiltro
     ? data.rows.filter(
         (r: any) =>
@@ -391,8 +393,6 @@ export function ConciliacionPeriodo() {
             r.estadoCodigo
           );
 
-          const puedeDiff = r.estadoCodigo === 'CON_DIFERENCIA'
-
           const puedeEnviar =
             r.estadoCodigo === 'OK' || r.estadoCodigo === 'OK_CON_DIF';
 
@@ -404,13 +404,6 @@ export function ConciliacionPeriodo() {
           return (
             <div
               key={r.id}
-              onClick={() =>
-                puedeDiff &&
-                navigate({
-                  screen: 'concDiff',
-                  id: r.id
-                })
-              }
               style={{
                 display: 'grid',
                 gridTemplateColumns: GRID,
@@ -418,9 +411,7 @@ export function ConciliacionPeriodo() {
                 borderTop:
                   `1px solid ${c.line}`,
                 fontSize: 12.5,
-                cursor: puedeDiff
-                  ? 'pointer'
-                  : 'default'
+                cursor: 'default'
               }}
             >
               {/* CHECKBOX */}
@@ -539,7 +530,30 @@ export function ConciliacionPeriodo() {
                   alignContent: "center"
                 }}
               >
-                {r.comprobante ?? '—'}
+                {r.facturas?.length > 0
+                  ? r.facturas.map((f: any) => (
+                      <span
+                        key={f.id}
+                        onClick={() =>
+                          navigate({
+                            screen: 'facturaDetalle',
+                            id: f.id,
+                            origin: 'concPeriodo',
+                          })
+                        }
+                        style={{
+                          display: 'block',
+                          color: c.primary,
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {f.comprobante ?? '—'}
+                      </span>
+                    ))
+                  : '—'}
               </div>
 
               {/* ESTADO */}

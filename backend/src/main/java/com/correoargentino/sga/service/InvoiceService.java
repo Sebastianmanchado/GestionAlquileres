@@ -389,7 +389,8 @@ public class InvoiceService {
     }
 
     @Transactional
-    public void assign(long id, long contratoId) throws BadRequestException {
+    public void assign(long id, long contratoId)
+            throws BadRequestException {
 
         requireEdit();
 
@@ -404,10 +405,12 @@ public class InvoiceService {
                 i.nis,
                 i.denominacion AS denom
             FROM contrato c
-            JOIN inmueble i ON i.id = c.inmueble_id
-            WHERE c.id = :c
+            INNER JOIN inmueble i
+                ON i.id = c.inmueble_id
+            WHERE c.id = :contratoId
             """,
-            new MapSqlParameterSource("c", contratoId)
+            new MapSqlParameterSource()
+                .addValue("contratoId", contratoId)
         );
 
         if (contrato == null) {
@@ -415,6 +418,7 @@ public class InvoiceService {
         }
 
         String nis = (String) contrato.get("nis");
+        String sucursal = (String) contrato.get("denom");
 
         // =========================================================
         // 2. OBTENER FACTURA
@@ -423,22 +427,20 @@ public class InvoiceService {
             """
             SELECT
                 id,
+                contrato_id AS contratoIdActual,
                 importe_total AS importeTotal,
                 periodo_facturado AS periodoFacturado,
-                numero_comprobante
+                numero_comprobante AS numeroComprobante
             FROM factura
-            WHERE id = :id
+            WHERE id = :facturaId
             """,
-            new MapSqlParameterSource("id", id)
+            new MapSqlParameterSource()
+                .addValue("facturaId", id)
         );
 
         if (factura == null) {
             throw new NotFoundException("Factura no encontrada");
         }
-
-        BigDecimal importeTotal = factura.get("importeTotal") == null
-            ? BigDecimal.ZERO
-            : (BigDecimal) factura.get("importeTotal");
 
         LocalDate periodo = factura.get("periodoFacturado") == null
             ? null
@@ -450,19 +452,17 @@ public class InvoiceService {
             );
         }
 
-        
-        String comprobante = (String) factura.get("numero_comprobante");
+        String comprobante =
+            (String) factura.get("numeroComprobante");
 
         // =========================================================
-        // 3. OBTENER CONCILIACIÓN
+        // 3. BUSCAR LA ÚNICA CONCILIACIÓN DEL CONTRATO
         // =========================================================
         Map<String, Object> conciliacion = repo.queryOne(
             """
             SELECT
                 id,
-                importe_facturado AS importeFacturado,
-                importe_esperado AS importeEsperado,
-                estado AS est
+                importe_esperado AS importeEsperado
             FROM conciliacion
             WHERE contrato_id = :contratoId
             """,
@@ -472,84 +472,167 @@ public class InvoiceService {
 
         if (conciliacion == null) {
             throw new NotFoundException(
-                "No existe una conciliación para el contrato y período de la factura."
+                "No existe una conciliación para el contrato "
+                    + contratoId
+                    + "."
             );
         }
 
-        BigDecimal facturado = conciliacion.get("importeFacturado") == null
-            ? BigDecimal.ZERO
-            : (BigDecimal) conciliacion.get("importeFacturado");
+        long conciliacionId =
+            ((Number) conciliacion.get("id")).longValue();
 
-        BigDecimal esperado = conciliacion.get("importeEsperado") == null
-            ? BigDecimal.ZERO
-            : (BigDecimal) conciliacion.get("importeEsperado");
+        BigDecimal esperado =
+            conciliacion.get("importeEsperado") == null
+                ? BigDecimal.ZERO
+                : (BigDecimal) conciliacion.get("importeEsperado");
 
-        // Sumar el importe neto de la factura
-        BigDecimal nuevoFacturado = facturado.add(importeTotal);
+        // =========================================================
+        // 4. ELIMINAR RELACIONES ANTERIORES DE LA FACTURA
+        // =========================================================
+        MapSqlParameterSource relacionParams =
+            new MapSqlParameterSource()
+                .addValue("facturaId", id)
+                .addValue("contratoId", contratoId)
+                .addValue("conciliacionId", conciliacionId);
 
-        // Calcular estado con el nuevo importe facturado
-        String estado;
+        repo.jdbc().update(
+            """
+            DELETE FROM conciliacion_factura
+            WHERE factura_id = :facturaId
+            """,
+            relacionParams
+        );
 
-        if (nuevoFacturado.compareTo(esperado) == 0) {
-            estado = "OK";
+        // =========================================================
+        // 5. ASIGNAR FACTURA AL CONTRATO
+        // =========================================================
+        int updated = repo.jdbc().update(
+            """
+            UPDATE factura
+            SET
+                contrato_id = :contratoId,
+                inmueble_id = :inmuebleId,
+                estado = N'PENDIENTE'
+            WHERE id = :facturaId
+            """,
+            new MapSqlParameterSource()
+                .addValue("facturaId", id)
+                .addValue("contratoId", contratoId)
+                .addValue(
+                    "inmuebleId",
+                    contrato.get("inmuebleId")
+                )
+        );
 
-        } else if (
+        if (updated == 0) {
+            throw new NotFoundException(
+                "No se pudo asignar la factura."
+            );
+        }
+
+        // =========================================================
+        // 6. CREAR conciliacion_factura
+        // =========================================================
+        repo.jdbc().update(
+            """
+            INSERT INTO conciliacion_factura (
+                conciliacion_id,
+                factura_id
+            )
+            SELECT
+                :conciliacionId,
+                :facturaId
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM conciliacion_factura
+                WHERE conciliacion_id = :conciliacionId
+                AND factura_id = :facturaId
+            )
+            """,
+            relacionParams
+        );
+
+        // =========================================================
+        // 7. RECALCULAR LA CONCILIACIÓN COMPLETA
+        // =========================================================
+        Map<String, Object> resumen = repo.jdbc().queryForMap(
+            """
+            SELECT
+                COUNT(*) AS cantidad,
+                ISNULL(SUM(f.importe_total), 0) AS totalFacturado
+            FROM conciliacion_factura cf
+            INNER JOIN factura f
+                ON f.id = cf.factura_id
+            WHERE cf.conciliacion_id = :conciliacionId
+            """,
+            relacionParams
+        );
+
+        int cantidad =
+            ((Number) resumen.get("cantidad")).intValue();
+
+        BigDecimal nuevoFacturado =
+            resumen.get("totalFacturado") == null
+                ? BigDecimal.ZERO
+                : (BigDecimal) resumen.get("totalFacturado");
+
+        BigDecimal tolerancia =
+            esperado
+                .abs()
+                .multiply(new BigDecimal("0.03"));
+
+        BigDecimal desvio =
             nuevoFacturado
                 .subtract(esperado)
-                .abs()
-                .compareTo(
-                    esperado.multiply(new BigDecimal("0.03"))
-                ) <= 0
-        ) {
-            estado = "OK_CON_DIF";
+                .abs();
 
+        String estado;
+
+        if (cantidad == 0) {
+            estado = "SIN_FACTURA";
+        } else if (nuevoFacturado.compareTo(esperado) == 0) {
+            estado = "OK";
+        } else if (desvio.compareTo(tolerancia) <= 0) {
+            estado = "OK_CON_DIF";
         } else {
             estado = "CON_DIFERENCIA";
         }
 
-        // Actualizar conciliación
         repo.jdbc().update(
             """
             UPDATE conciliacion
             SET
                 importe_facturado = :importeFacturado,
                 estado = :estado
-            WHERE id = :id
+            WHERE id = :conciliacionId
             """,
             new MapSqlParameterSource()
-                .addValue("id", conciliacion.get("id"))
-                .addValue("importeFacturado", nuevoFacturado)
+                .addValue("conciliacionId", conciliacionId)
+                .addValue(
+                    "importeFacturado",
+                    nuevoFacturado
+                )
                 .addValue("estado", estado)
         );
 
-
         // =========================================================
-        // 5. ASIGNAR FACTURA AL CONTRATO
-        // =========================================================
-        MapSqlParameterSource p = new MapSqlParameterSource()
-            .addValue("id", id)
-            .addValue("contratoId", contratoId)
-            .addValue("inmuebleId", contrato.get("inmuebleId"));
-
-        repo.jdbc().update(
-            """
-            UPDATE factura
-            SET
-                contrato_id = :contratoId,
-                inmueble_id = :inmuebleId,
-                estado = 'PENDIENTE'
-            WHERE id = :id
-            """,
-            p
-        );
-
-        // =========================================================
-        // 6. AUDITORÍA
+        // 8. AUDITORÍA
         // =========================================================
         String ref =
-            contrato.get("nis") + " · " + contrato.get("denom");
+            nis + " · " + sucursal;
 
-        notificationService.create( Map.of( "texto", "La factura '" + comprobante + "' se asigno automaticamente al contrato con NIS '" + nis +"'") );
+        notificationService.create(
+            Map.of(
+                "texto",
+                "La factura '"
+                    + comprobante
+                    + "' se asignó al contrato con NIS '"
+                    + nis
+                    + "' y sucursal '"
+                    + sucursal
+                    + "'."
+            )
+        );
 
         audit.log(
             "factura",

@@ -265,8 +265,8 @@ BEGIN
                           indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, observaciones, cantidad_facturas)
     VALUES (N'C-' + @nisExtra, @inmIdExtra, @locadorIdExtra, @acreedorIdExtra, 1, 1,
             '2023-07-01', '2028-07-01', 'ARS', @importeExtra, @importeExtra * 2,
-            1, N'TRIMESTRAL', 1, 3.0, N'Contrato sin facturas asociadas (bandeja).', 0);
-    SET @conIdExtra = SCOPE_IDENTITY();
+            1, N'TRIMESTRAL', 1, 3.0, N'Contrato sin facturas asociadas (bandeja).', 1);
+    SET @conIdExtra = CONVERT(BIGINT, SCOPE_IDENTITY());
 
     INSERT INTO contrato_valor (contrato_id, vigencia_desde, vigencia_hasta, importe_mensual, origen, indice_id, coeficiente_aplicado)
     VALUES (@conIdExtra, '2026-01-01', NULL, @importeExtra, N'AJUSTE_INDICE', 1, 1.082);
@@ -438,22 +438,6 @@ INSERT INTO factura (cuit_emisor, razon_social, tipo_comprobante_id, punto_venta
  ('30687412309', N'Fideicomiso Norte',         1, 4, N'0004-00003321', '2026-05-09','2026-05-01', 414297.52, 87002.48, 501300.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
  ('33710293845', N'Grupo Inmobiliario Cuyo SA',1, 1, N'0001-00012099', '2026-06-07','2026-06-01', 162809.92, 34190.08, 197000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
  ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio);
-
-/* =========================================================================
-   6) CANTIDAD DE FACTURAS POR CONTRATO
-      Se cuenta SOLO el periodo conciliado: cantidad_facturas representa las
-      facturas por periodo, no el acumulado historico.
-   ========================================================================= */
-UPDATE c
-SET c.cantidad_facturas = ISNULL(f.cantidad, 0)
-FROM contrato c
-LEFT JOIN (
-    SELECT contrato_id, COUNT(*) AS cantidad
-    FROM factura
-    WHERE contrato_id IS NOT NULL
-      AND periodo_facturado = '2026-06-01'
-    GROUP BY contrato_id
-) f ON f.contrato_id = c.id;
 
 /* =========================================================================
    7) CONCILIACION DEL PERIODO 2026-06

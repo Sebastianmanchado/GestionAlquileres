@@ -17,6 +17,9 @@ import com.correoargentino.sga.repo.SgaRepository;
 import com.correoargentino.sga.security.CurrentUserProvider;
 import com.correoargentino.sga.web.ForbiddenException;
 import com.correoargentino.sga.web.NotFoundException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class ReconciliationService {
@@ -38,41 +41,125 @@ public class ReconciliationService {
         return repo.query("SELECT DISTINCT periodo FROM conciliacion ORDER BY periodo DESC", new MapSqlParameterSource());
     }
 
+
     public Map<String, Object> list(String periodo) {
-        LocalDate per = periodo == null || periodo.isBlank() ? latestPeriod() : LocalDate.parse(periodo.substring(0, 10));
-        MapSqlParameterSource p = new MapSqlParameterSource("periodo", per);
-        List<Map<String, Object>> rows = repo.query("""
-            SELECT co.id, i.nis, i.denominacion AS denom,
-                   co.importe_esperado AS esperado, co.importe_facturado AS facturado, co.diferencia,
-                   co.estado AS estadoCodigo, c.id AS contratoId, c.cantidad_facturas as cantidad_facturas,
-                   (
-                        SELECT COUNT(*)
-                        FROM factura f
-                        WHERE f.contrato_id = c.id
-                    ) AS facturas_existentes,
-                   (SELECT TOP 1 f.numero_comprobante FROM conciliacion_factura cf JOIN factura f ON f.id=cf.factura_id
-                     WHERE cf.conciliacion_id=co.id ORDER BY f.id) AS comprobante
-              FROM conciliacion co
-              JOIN contrato c ON c.id=co.contrato_id
-              JOIN inmueble i ON i.id=c.inmueble_id
-             WHERE co.periodo=:periodo
-             ORDER BY i.nis
-            """, p);
+
+        LocalDate per =
+            periodo == null || periodo.isBlank()
+                ? latestPeriod()
+                : LocalDate.parse(periodo.substring(0, 10));
+
+        MapSqlParameterSource parameters =
+            new MapSqlParameterSource("periodo", per);
+
+        List<Map<String, Object>> rows = repo.query(
+            """
+            SELECT
+                co.id,
+                i.nis,
+                i.denominacion AS denom,
+                co.importe_esperado AS esperado,
+                co.importe_facturado AS facturado,
+                co.diferencia,
+                co.estado AS estadoCodigo,
+                c.id AS contratoId,
+                c.cantidad_facturas AS cantidad_facturas,
+
+                (
+                    SELECT COUNT(*)
+                    FROM factura f
+                    WHERE f.contrato_id = c.id
+                ) AS facturas_existentes,
+
+                (
+                    SELECT
+                        f.id AS id,
+                        f.numero_comprobante AS comprobante
+                    FROM conciliacion_factura cf
+                    INNER JOIN factura f
+                        ON f.id = cf.factura_id
+                    WHERE cf.conciliacion_id = co.id
+                    ORDER BY f.id
+                    FOR JSON PATH
+                ) AS facturasJson
+
+            FROM conciliacion co
+            INNER JOIN contrato c
+                ON c.id = co.contrato_id
+            INNER JOIN inmueble i
+                ON i.id = c.inmueble_id
+            WHERE co.periodo = :periodo
+            ORDER BY i.nis
+            """,
+            parameters
+        );
+
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        for (Map<String, Object> row : rows) {
+
+            Object facturasJsonValue = row.remove("facturasJson");
+
+            String facturasJson =
+                facturasJsonValue == null
+                    ? "[]"
+                    : facturasJsonValue.toString();
+
+            try {
+                List<Map<String, Object>> facturas =
+                    objectMapper.readValue(
+                        facturasJson,
+                        new TypeReference<List<Map<String, Object>>>() {
+                        }
+                    );
+
+                row.put("facturas", facturas);
+
+            } catch (JsonProcessingException e) {
+                throw new IllegalStateException(
+                    "No se pudo convertir la lista de facturas de la conciliación "
+                        + row.get("id"),
+                    e
+                );
+            }
+        }
 
         Map<String, Object> out = new LinkedHashMap<>();
+
         out.put("rows", rows);
         out.put("periodo", per);
         out.put("periodos", periodos());
 
         List<Map<String, Object>> filtros = new ArrayList<>();
-        for (String est : List.of("OK", "OK_CON_DIF", "CON_DIFERENCIA", "SIN_FACTURA")) {
-            long count = rows.stream().filter(r -> est.equals(r.get("estadoCodigo"))).count();
-            Map<String, Object> f = new LinkedHashMap<>();
-            f.put("codigo", est);
-            f.put("count", count);
-            filtros.add(f);
+
+        for (
+            String estado : List.of(
+                "OK",
+                "OK_CON_DIF",
+                "CON_DIFERENCIA",
+                "SIN_FACTURA"
+            )
+        ) {
+            long count = rows.stream()
+                .filter(
+                    row ->
+                        estado.equals(
+                            row.get("estadoCodigo")
+                        )
+                )
+                .count();
+
+            Map<String, Object> filtro =
+                new LinkedHashMap<>();
+
+            filtro.put("codigo", estado);
+            filtro.put("count", count);
+
+            filtros.add(filtro);
         }
+
         out.put("filtros", filtros);
+
         return out;
     }
 
