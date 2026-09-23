@@ -73,6 +73,7 @@ public class SgaRepository {
         SELECT c.id,
                i.nis,
                i.denominacion                         AS denom,
+               i.responsable                          AS responsable,
                r.nombre                               AS region,
                l.nombre                               AS localidad,
                p.nombre                               AS provincia,
@@ -89,7 +90,8 @@ public class SgaRepository {
                c.fecha_vencimiento                    AS vencimiento,
                ec.codigo                              AS estadoCodigo,
                ec.nombre                              AS estadoNombre,
-               lo.razon_social                        AS propietario
+               lo.razon_social                        AS propietario,
+               lo.cuit                                 AS locadorCuit
           FROM contrato c
           JOIN inmueble i          ON i.id = c.inmueble_id
           LEFT JOIN region r       ON r.id = i.region_id
@@ -142,8 +144,22 @@ public class SgaRepository {
         MapSqlParameterSource p = new MapSqlParameterSource();
 
         if (search != null && !search.isBlank()) {
-            where.append(" AND (i.nis LIKE :search OR i.denominacion LIKE :search)");
-            p.addValue("search", "%" + search.trim() + "%");
+            String q = search.trim();
+            where.append("""
+                 AND (
+                      i.nis LIKE :search
+                   OR i.denominacion LIKE :search
+                   OR ISNULL(i.responsable,'') LIKE :search
+                   OR lo.razon_social LIKE :search
+                   OR lo.cuit LIKE :search
+            """);
+            p.addValue("search", "%" + q + "%");
+            String digits = q.replaceAll("[^0-9]", "");
+            if (digits.length() >= 3) {
+                where.append(" OR lo.cuit LIKE :searchCuit");
+                p.addValue("searchCuit", "%" + digits + "%");
+            }
+            where.append(")");
         }
         if (region != null && !region.isBlank() && !region.startsWith("Región")) {
             where.append(" AND r.nombre = :region");

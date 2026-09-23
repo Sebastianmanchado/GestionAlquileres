@@ -87,9 +87,12 @@ public class InvoiceService {
                 new MapSqlParameterSource("cuit", r.get("cuit"));
 
             List<Map<String, Object>> sug = repo.query("""
-                SELECT TOP 5
+                SELECT TOP 8
                     i.nis,
                     i.denominacion AS sucursal,
+                    i.responsable AS responsable,
+                    lo.cuit AS locadorCuit,
+                    lo.razon_social AS locadorRazon,
                     (
                         SELECT TOP 1 cv.importe_mensual
                         FROM contrato_valor cv
@@ -117,6 +120,9 @@ public class InvoiceService {
                     SELECT
                         i.nis,
                         i.denominacion AS sucursal,
+                        i.responsable AS responsable,
+                        lo.cuit AS locadorCuit,
+                        lo.razon_social AS locadorRazon,
                         (
                             SELECT TOP 1 cv.importe_mensual
                             FROM contrato_valor cv
@@ -127,6 +133,8 @@ public class InvoiceService {
                     FROM contrato c
                     JOIN inmueble i
                         ON i.id = c.inmueble_id
+                    JOIN locador lo
+                        ON lo.id = c.locador_id
                     JOIN estado_contrato e
                         ON e.id = c.estado_contrato_id
                     WHERE e.codigo <> 'RESCINDIDO'
