@@ -23,10 +23,35 @@ public class SgaRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
     private static final int ESTADO_VIGENTE     = 1;
-    private static final int ESTADO_PROX_VENCER = 2;
     private static final int ESTADO_VENCIDO     = 3;
     private static final int ESTADO_RESCINDIDO  = 4;
-    private static final int DIAS_PROX_VENCER   = 90;
+
+    private static final Map<String, String> CONTRACT_SORT = Map.ofEntries(
+            Map.entry("nis", "i.nis"),
+            Map.entry("denom", "i.denominacion"),
+            Map.entry("region", "r.nombre"),
+            Map.entry("localidad", "l.nombre"),
+            Map.entry("provincia", "p.nombre"),
+            Map.entry("destino", "destino"),
+            Map.entry("valorActual", "valorActual"),
+            Map.entry("indice", "ia.codigo"),
+            Map.entry("tipo", "tc.nombre"),
+            Map.entry("inicio", "c.fecha_inicio"),
+            Map.entry("vencimiento", "c.fecha_vencimiento"),
+            Map.entry("estado", "ec.nombre"),
+            Map.entry("propietario", "lo.razon_social")
+    );
+
+    private static final Map<String, String> INMUEBLE_SORT = Map.ofEntries(
+            Map.entry("nis", "i.nis"),
+            Map.entry("denom", "i.denominacion"),
+            Map.entry("region", "r.nombre"),
+            Map.entry("localidad", "l.nombre"),
+            Map.entry("provincia", "p.nombre"),
+            Map.entry("direccion", "i.direccion"),
+            Map.entry("destino", "d.destino"),
+            Map.entry("superficie", "i.superficie_cubierta_m2")
+    );
 
     public SgaRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -107,9 +132,7 @@ public class SgaRepository {
     private int recalcularEstadosContrato() {
         MapSqlParameterSource p = new MapSqlParameterSource()
                 .addValue("hoy",        java.sql.Date.valueOf(LocalDate.now()))
-                .addValue("dias",       DIAS_PROX_VENCER)
                 .addValue("vigente",    ESTADO_VIGENTE)
-                .addValue("prox",       ESTADO_PROX_VENCER)
                 .addValue("vencido",    ESTADO_VENCIDO)
                 .addValue("rescindido", ESTADO_RESCINDIDO);
 
@@ -118,7 +141,6 @@ public class SgaRepository {
                 SET c.estado_contrato_id =
                         CASE
                             WHEN c.fecha_vencimiento < :hoy THEN :vencido
-                            WHEN DATEDIFF(DAY, :hoy, c.fecha_vencimiento) <= :dias THEN :prox
                             ELSE :vigente
                         END
                 FROM contrato c
@@ -127,7 +149,6 @@ public class SgaRepository {
                 AND c.estado_contrato_id <>
                         CASE
                             WHEN c.fecha_vencimiento < :hoy THEN :vencido
-                            WHEN DATEDIFF(DAY, :hoy, c.fecha_vencimiento) <= :dias THEN :prox
                             ELSE :vigente
                         END
                 """;
@@ -136,7 +157,8 @@ public class SgaRepository {
     }
 
     public Map<String, Object> listContracts(String search, String region, String estado,
-                                            String indice, String venc, int page, int size) {
+                                            String indice, String venc, int page, int size,
+                                            String sort, String dir) {
 
         int estadosActualizados = recalcularEstadosContrato();
 
@@ -207,7 +229,8 @@ public class SgaRepository {
         Integer total = jdbc.queryForObject("SELECT COUNT(*) " + base, p, Integer.class);
 
         String dataSql = CONTRACT_SELECT.replace("/*FILTERS*/", where.toString()) +
-                " ORDER BY i.nis OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
+                " ORDER BY " + orderBy(sort, dir, CONTRACT_SORT, "i.nis") +
+                " OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
         p.addValue("offset", page * size);
         p.addValue("size", size);
 
@@ -227,7 +250,9 @@ public class SgaRepository {
     public Map<String, Object> getContractDetail(long id) {
         MapSqlParameterSource p = new MapSqlParameterSource("id", id);
         Map<String, Object> head = queryOne("""
-            SELECT c.id, c.numero, i.nis, i.denominacion AS denom,
+            SELECT c.id, c.numero, i.id AS inmuebleId, i.nis, i.denominacion AS denom,
+                   i.region_id AS regionId, i.localidad_id AS localidadId,
+                   (SELECT TOP 1 idd.destino_id FROM inmueble_destino idd WHERE idd.inmueble_id = i.id) AS destinoId,
                    i.direccion, l.nombre AS localidad, p.nombre AS provincia, r.nombre AS region,
                    du.destino AS destino,
                    i.superficie_cubierta_m2 AS supCubierta, i.superficie_terreno_m2 AS supTerreno,
@@ -319,5 +344,100 @@ public class SgaRepository {
         c.put("locadores", query("SELECT id, razon_social AS razonSocial, cuit FROM locador WHERE activo=1 ORDER BY razon_social", new MapSqlParameterSource()));
         c.put("centrosCosto", query("SELECT id, codigo, descripcion FROM centro_costo ORDER BY id", new MapSqlParameterSource()));
         return c;
+    }
+
+    /* ================= Inmuebles ================= */
+
+    public Map<String, Object> listInmuebles(String search, String region, int page, int size,
+                                             String sort, String dir) {
+        StringBuilder where = new StringBuilder(" WHERE i.activo = 1");
+        MapSqlParameterSource p = new MapSqlParameterSource();
+
+        if (search != null && !search.isBlank()) {
+            where.append("""
+                 AND (
+                      i.nis LIKE :search
+                   OR i.denominacion LIKE :search
+                   OR ISNULL(r.nombre,'') LIKE :search
+                 )
+            """);
+            p.addValue("search", "%" + search.trim() + "%");
+        }
+        if (region != null && !region.isBlank() && !region.startsWith("Región")) {
+            where.append(" AND r.nombre = :region");
+            p.addValue("region", region.trim());
+        }
+
+        String from = """
+            FROM inmueble i
+            LEFT JOIN region r ON r.id = i.region_id
+            LEFT JOIN localidad l ON l.id = i.localidad_id
+            LEFT JOIN provincia p ON p.id = l.provincia_id
+            OUTER APPLY (
+                SELECT TOP 1 du.nombre AS destino
+                  FROM inmueble_destino idd
+                  JOIN destino_uso du ON du.id = idd.destino_id
+                 WHERE idd.inmueble_id = i.id
+            ) d
+            """ + where;
+
+        Integer total = jdbc.queryForObject("SELECT COUNT(*) " + from, p, Integer.class);
+
+        String sql = """
+            SELECT i.id,
+                   i.nis,
+                   i.denominacion AS denom,
+                   r.nombre AS region,
+                   l.nombre AS localidad,
+                   p.nombre AS provincia,
+                   i.direccion,
+                   d.destino,
+                   i.superficie_cubierta_m2 AS superficie
+            """ + from + " ORDER BY " + orderBy(sort, dir, INMUEBLE_SORT, "i.nis") +
+                " OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
+        p.addValue("offset", page * size);
+        p.addValue("size", size);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("rows", query(sql, p));
+        result.put("total", total == null ? 0 : total);
+        result.put("page", page);
+        result.put("size", size);
+        return result;
+    }
+
+    public Map<String, Object> getInmueble(long id) {
+        return queryOne("""
+            SELECT i.id,
+                   i.nis,
+                   i.denominacion AS denominacion,
+                   i.direccion,
+                   i.region_id AS regionId,
+                   r.nombre AS region,
+                   i.localidad_id AS localidadId,
+                   l.nombre AS localidad,
+                   p.nombre AS provincia,
+                   i.superficie_cubierta_m2 AS superficieCubierta,
+                   d.destinoId,
+                   d.destino
+              FROM inmueble i
+              LEFT JOIN region r ON r.id = i.region_id
+              LEFT JOIN localidad l ON l.id = i.localidad_id
+              LEFT JOIN provincia p ON p.id = l.provincia_id
+              OUTER APPLY (
+                  SELECT TOP 1 idd.destino_id AS destinoId, du.nombre AS destino
+                    FROM inmueble_destino idd
+                    JOIN destino_uso du ON du.id = idd.destino_id
+                   WHERE idd.inmueble_id = i.id
+              ) d
+             WHERE i.id = :id
+            """, new MapSqlParameterSource("id", id));
+    }
+
+    private static String orderBy(String sort, String dir, Map<String, String> allowed, String fallback) {
+        String column = allowed.get(sort == null ? "" : sort.trim());
+        if (column == null) column = fallback;
+        String direction = "desc".equalsIgnoreCase(dir) ? "DESC" : "ASC";
+        return column + " " + direction;
     }
 }

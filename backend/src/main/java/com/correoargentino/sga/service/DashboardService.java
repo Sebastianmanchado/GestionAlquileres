@@ -23,12 +23,11 @@ public class DashboardService {
         var empty = new MapSqlParameterSource();
         Map<String, Object> out = new LinkedHashMap<>();
 
-        int vigentes = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo IN ('VIGENTE','PROX_VENCER')");
-        int prox = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='PROX_VENCER'");
+        int vigentes = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='VIGENTE'");
         int vencidos = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='VENCIDO'");
         int totales = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo<>'RESCINDIDO'");
         int vencen90 = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id " +
-                "WHERE e.codigo IN ('VIGENTE','PROX_VENCER') AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,90,CAST(GETDATE() AS DATE))");
+                "WHERE e.codigo='VIGENTE' AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,90,CAST(GETDATE() AS DATE))");
 
         Map<String, Object> lastConc = repo.queryOne(
                 "SELECT TOP 1 periodo FROM conciliacion ORDER BY periodo DESC", empty);
@@ -41,12 +40,12 @@ public class DashboardService {
         BigDecimal monto = decimalOf("SELECT ISNULL(SUM(cv.importe_mensual),0) FROM contrato c " +
                 "JOIN estado_contrato e ON e.id=c.estado_contrato_id " +
                 "JOIN contrato_valor cv ON cv.contrato_id=c.id AND cv.vigencia_hasta IS NULL " +
-                "WHERE e.codigo IN ('VIGENTE','PROX_VENCER')");
+                "WHERE e.codigo='VIGENTE'");
 
         Map<String, Object> kpi = new LinkedHashMap<>();
         kpi.put("contratosVigentes", vigentes);
         kpi.put("contratosVencidos", vencidos);
-        kpi.put("contratosProximos", prox);
+        kpi.put("contratosProximos", vencen90);
         kpi.put("contratosTotales", totales);
         kpi.put("vencen90", vencen90);
         kpi.put("carteraPct", totales == 0 ? 0 : Math.round(vencen90 * 1000.0 / totales) / 10.0);
@@ -73,7 +72,7 @@ public class DashboardService {
         // Requiere tu atención (derivado de datos reales)
         List<String> attention = new ArrayList<>();
         int vencenSemana = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id " +
-                "WHERE e.codigo IN ('VIGENTE','PROX_VENCER') AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,7,CAST(GETDATE() AS DATE))");
+                "WHERE e.codigo='VIGENTE' AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,7,CAST(GETDATE() AS DATE))");
         if (vencenSemana > 0) attention.add(vencenSemana + " contratos vencen esta semana y requieren renovación.");
         if (concDiff > 0) attention.add(concDiff + " conciliaciones del período con diferencia de importe.");
         int sinAsignarViejas = intOf("SELECT COUNT(*) FROM factura WHERE estado='SIN_ASIGNAR' AND fecha_emision < DATEADD(DAY,-15,CAST(GETDATE() AS DATE))");
@@ -85,7 +84,7 @@ public class DashboardService {
         // Notificaciones
         List<Map<String, Object>> notifs = new ArrayList<>();
         Map<String, Object> proxContrato = repo.queryOne("SELECT TOP 1 i.nis, c.fecha_vencimiento AS venc FROM contrato c JOIN inmueble i ON i.id=c.inmueble_id " +
-                "JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo IN ('VIGENTE','PROX_VENCER') AND c.fecha_vencimiento >= CAST(GETDATE() AS DATE) ORDER BY c.fecha_vencimiento", empty);
+                "JOIN estado_contrato e ON e.id=c.estado_contrato_id WHERE e.codigo='VIGENTE' AND c.fecha_vencimiento >= CAST(GETDATE() AS DATE) ORDER BY c.fecha_vencimiento", empty);
         if (proxContrato != null) notifs.add(notif("Contrato " + proxContrato.get("nis") + " próximo a vencer.", "Vencimiento " + proxContrato.get("venc")));
         Map<String, Object> unaFactura = repo.queryOne("SELECT TOP 1 cuit_emisor AS cuit FROM factura WHERE estado='SIN_ASIGNAR' ORDER BY id DESC", empty);
         if (unaFactura != null) notifs.add(notif("Factura sin asignar: CUIT " + unaFactura.get("cuit") + ".", "Bandeja de conciliación"));

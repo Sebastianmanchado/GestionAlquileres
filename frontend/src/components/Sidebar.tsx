@@ -8,7 +8,7 @@ const groups: { title?: string; items: Item[] }[] = [
   {
     items: [
       { key: 'dashboard', label: 'Dashboard', screens: ['dashboard'], target: { screen: 'dashboard' } },
-      { key: 'listado', label: 'Inmuebles y contratos', screens: ['listado', 'detalle', 'form'], target: { screen: 'listado' } },
+      { key: 'listado', label: 'Inmuebles y contratos', screens: ['listado', 'detalle', 'form', 'formInmueble'], target: { screen: 'listado' } },
     ],
   },
   {
