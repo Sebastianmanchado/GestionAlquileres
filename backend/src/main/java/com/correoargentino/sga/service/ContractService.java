@@ -563,9 +563,20 @@ public class ContractService {
 
     private int estadoFromVencimiento(LocalDate venc) {
         LocalDate today = LocalDate.now();
-        if (venc.isBefore(today)) return 3;              // VENCIDO
-        if (!venc.isAfter(today.plusDays(90))) return 2; // PROX_VENCER
-        return 1;                                        // VIGENTE
+        if (venc.isBefore(today)) return 3; // VENCIDO
+        return 1;                           // VIGENTE
+    }
+
+    @Transactional
+    public long createInmueble(Map<String, Object> body) throws BadRequestException {
+        requireEdit();
+        if (str(body.get("nis")) == null || str(body.get("nis")).isBlank()) {
+            throw new BadRequestException("El NIS es obligatorio.");
+        }
+        if (str(body.get("denominacion")) == null || str(body.get("denominacion")).isBlank()) {
+            throw new BadRequestException("La unidad de negocio es obligatoria.");
+        }
+        return insertInmueble(body);
     }
 
     private static Long asLong(Object o) {

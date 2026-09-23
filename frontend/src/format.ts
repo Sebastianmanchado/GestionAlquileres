@@ -67,7 +67,7 @@ type EstadoInfo = { label: string; tone: BadgeTone };
 export function estadoContrato(codigo: string, nombre?: string): EstadoInfo {
   switch (codigo) {
     case 'VIGENTE': return { label: nombre ?? 'Vigente', tone: 'green' };
-    case 'PROX_VENCER': return { label: nombre ?? 'Próximo a vencer', tone: 'amber' };
+    case 'PROX_VENCER': return { label: 'Vigente', tone: 'green' };
     case 'VENCIDO': return { label: nombre ?? 'Vencido', tone: 'red' };
     case 'RESCINDIDO': return { label: nombre ?? 'Rescindido', tone: 'neutral' };
     default: return { label: nombre ?? codigo, tone: 'neutral' };

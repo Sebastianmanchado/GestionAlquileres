@@ -9,6 +9,7 @@ const BREADCRUMBS: Record<string, string> = {
   listado: 'Inicio / Inmuebles y contratos',
   detalle: 'Inicio / Inmuebles y contratos / Detalle',
   form: 'Inicio / Inmuebles y contratos / Nuevo contrato',
+  formInmueble: 'Inicio / Inmuebles y contratos / Nuevo inmueble',
   concPeriodo: 'Inicio / Conciliación / Vista por período',
   concDiff: 'Inicio / Conciliación / Vista por período / Diferencia',
   facturas: 'Inicio / Conciliación / Facturas sin asignar',

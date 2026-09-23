@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api } from '../api';
+import { api, qs } from '../api';
 import { useApp } from '../context';
 import { c, s } from '../theme';
 import { Loading } from './Dashboard';
@@ -20,6 +20,9 @@ export function FormContrato({ id }: { id?: number }) {
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(!editing);
   const [error, setError] = useState('');
+  const [modoInmueble, setModoInmueble] = useState<'nuevo' | 'existente'>('nuevo');
+  const [busquedaInmueble, setBusquedaInmueble] = useState('');
+  const [opcionesInmueble, setOpcionesInmueble] = useState<any[]>([]);
 
   function calcularCantidadMeses(
     fechaInicio?: string,
@@ -59,9 +62,14 @@ export function FormContrato({ id }: { id?: number }) {
     if (editing) {
       api.get(`/contracts/${id}`).then((d: any) => {
         setForm({
+          inmuebleId: d.inmuebleId,
           nis: d.nis,
           denominacion: d.denom,
           direccion: d.direccion,
+          regionId: d.regionId,
+          localidadId: d.localidadId,
+          destinoId: d.destinoId,
+          superficieCubierta: d.supCubierta ?? '',
           importeTotal: d.valorActual,
           fechaInicio: str(d.inicio),
           fechaVencimiento: str(d.vencimiento),
@@ -76,6 +84,38 @@ export function FormContrato({ id }: { id?: number }) {
       });
     }
   }, [id]);
+
+  useEffect(() => {
+    if (editing || modoInmueble !== 'existente') return;
+    const q = busquedaInmueble.trim();
+    if (!q) {
+      setOpcionesInmueble([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      api.get<any>('/inmuebles' + qs({ search: q, size: 8 }))
+        .then((res) => setOpcionesInmueble(res.rows ?? []))
+        .catch(() => setOpcionesInmueble([]));
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [busquedaInmueble, modoInmueble, editing]);
+
+  async function elegirInmueble(inmuebleId: number) {
+    const d = await api.get<any>(`/inmuebles/${inmuebleId}`);
+    setForm((f) => ({
+      ...f,
+      inmuebleId: d.id,
+      nis: d.nis ?? '',
+      denominacion: d.denominacion ?? '',
+      direccion: d.direccion ?? '',
+      regionId: d.regionId ?? '',
+      localidadId: d.localidadId ?? '',
+      destinoId: d.destinoId ?? '',
+      superficieCubierta: d.superficieCubierta ?? '',
+    }));
+    setBusquedaInmueble(`${d.nis} · ${d.denominacion}`);
+    setOpcionesInmueble([]);
+  }
 
   if (!meta.canEdit) {
     return (
@@ -121,16 +161,25 @@ async function save() {
       return;
     }
 
+    if (!editing && modoInmueble === 'existente' && !form.inmuebleId) {
+      setError('Seleccioná un inmueble existente.');
+      setSaving(false);
+      return;
+    }
+
     setError('');
+
+    const payload = { ...form };
+    if (!editing && modoInmueble === 'nuevo') delete payload.inmuebleId;
 
     if (editing) {
       console.log("viene a put")
-      await api.put(`/contracts/${id}`, form);
+      await api.put(`/contracts/${id}`, payload);
       navigate({ screen: 'detalle', id: id! });
     } else {
       const res = await api.post<{ id: number }>(
         '/contracts',
-        form
+        payload
       );
 
       navigate({ screen: 'detalle', id: res.id });
@@ -153,16 +202,69 @@ async function save() {
 }
 
 
+  const inmuebleBloqueado = editing || modoInmueble === 'existente';
+  const lockedInput = { background: c.fieldBg, cursor: 'not-allowed' as const };
+
   const sections: { key: string; titulo: string; body: ReactNode }[] = [
     {
       key: 'inmueble',
       titulo: 'Inmueble',
       body: (
         <>
+          {!editing && (
+            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                style={modoInmueble === 'existente' ? s.btnPrimary : s.btn}
+                onClick={() => setModoInmueble('existente')}
+              >
+                Inmueble existente
+              </button>
+              <button
+                type="button"
+                style={modoInmueble === 'nuevo' ? s.btnPrimary : s.btn}
+                onClick={() => {
+                  setModoInmueble('nuevo');
+                  set('inmuebleId', undefined);
+                  setBusquedaInmueble('');
+                  setOpcionesInmueble([]);
+                }}
+              >
+                Cargar nuevo
+              </button>
+            </div>
+          )}
+
+          {!editing && modoInmueble === 'existente' && (
+            <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
+              <label style={s.label}>Buscar inmueble</label>
+              <input
+                style={s.input}
+                value={busquedaInmueble}
+                onChange={(e) => setBusquedaInmueble(e.target.value)}
+                placeholder="NIS, unidad de negocio o región"
+              />
+              {opcionesInmueble.length > 0 && (
+                <div style={{ ...s.panel, marginTop: 6, overflow: 'hidden' }}>
+                  {opcionesInmueble.map((op) => (
+                    <div
+                      key={op.id}
+                      onClick={() => elegirInmueble(op.id)}
+                      style={{ padding: '8px 12px', cursor: 'pointer', borderTop: `1px solid ${c.line}`, fontSize: 12.5 }}
+                    >
+                      <b>{op.nis}</b> · {op.denom}{op.region ? ` · ${op.region}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <F label="NIS">
             <input
-              style={s.input}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.nis ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('nis', e.target.value)}
               placeholder="B0501"
             />
@@ -170,8 +272,9 @@ async function save() {
 
           <F label="Unidad de negocio">
             <input
-              style={s.input}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.denominacion ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('denominacion', e.target.value)}
               placeholder="Sucursal A"
             />
@@ -179,8 +282,9 @@ async function save() {
 
           <F label="Región">
             <select
-              style={{ ...s.input }}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.regionId ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('regionId', e.target.value)}
             >
               <option value="">Seleccionar región</option>
@@ -195,8 +299,9 @@ async function save() {
 
           <F label="Localidad">
             <select
-              style={{ ...s.input }}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.localidadId ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('localidadId', e.target.value)}
             >
               <option value="">Seleccionar localidad</option>
@@ -211,8 +316,9 @@ async function save() {
 
           <F label="Destino / uso">
             <select
-              style={{ ...s.input }}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.destinoId ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('destinoId', e.target.value)}
             >
               <option value="">Seleccionar destino</option>
@@ -227,8 +333,9 @@ async function save() {
 
           <F label="Dirección">
             <input
-              style={s.input}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.direccion ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('direccion', e.target.value)}
               placeholder="Av. Ejemplo 1234"
             />
@@ -236,8 +343,9 @@ async function save() {
 
           <F label="Superficie cubierta (m²)">
             <input
-              style={s.input}
+              style={{ ...s.input, ...(inmuebleBloqueado ? lockedInput : {}) }}
               value={form.superficieCubierta ?? ''}
+              disabled={inmuebleBloqueado}
               onChange={(e) => set('superficieCubierta', e.target.value)}
               placeholder="120"
             />

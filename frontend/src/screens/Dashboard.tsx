@@ -24,8 +24,8 @@ export function Dashboard() {
   const k = data.kpi;
   const kpis = [
     { label: 'Contratos totales', value: `${k.contratosTotales}`, sub: 'en cartera' },
-    { label: 'Contratos vigentes', value: `${k.contratosVigentes}`, sub: 'activos, incl. próximos a vencer' },
-    { label: 'Vencen en próx. 90 días', value: `${k.contratosProximos}`, sub: `${k.contratosTotales === 0 ? 0 : Math.round(k.contratosProximos * 1000 / k.contratosTotales) / 10}% de la cartera` },
+    { label: 'Contratos vigentes', value: `${k.contratosVigentes}`, sub: 'en estado vigente' },
+    { label: 'Vencen en próx. 90 días', value: `${k.vencen90}`, sub: `${k.carteraPct}% de la cartera` },
     { label: 'Conciliaciones del mes con diferencia', value: `${k.concConDiferencia}`, sub: `de ${k.concProcesadas} procesadas` },
     { label: 'Facturas pendientes de matchear', value: `${k.facturasSinAsignar}`, sub: 'bandeja sin asignar' },
     { label: 'Monto mensual comprometido', value: money(k.montoMensual), sub: 'período actual' },

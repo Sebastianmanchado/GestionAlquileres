@@ -37,8 +37,10 @@ public class ContractController {
             @RequestParam(required = false) String indice,
             @RequestParam(required = false) String venc,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "14") int size) {
-        return repo.listContracts(search, region, estado, indice, venc, page, size);
+            @RequestParam(defaultValue = "14") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String dir) {
+        return repo.listContracts(search, region, estado, indice, venc, page, size, sort, dir);
     }
 
     @GetMapping("/{id}")

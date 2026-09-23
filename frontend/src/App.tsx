@@ -10,6 +10,7 @@ import { Dashboard } from './screens/Dashboard';
 import { Listado } from './screens/Listado';
 import { DetalleContrato } from './screens/DetalleContrato';
 import { FormContrato } from './screens/FormContrato';
+import { FormInmueble } from './screens/FormInmueble';
 import { ConciliacionPeriodo } from './screens/ConciliacionPeriodo';
 import { ConciliacionDiff } from './screens/ConciliacionDiff';
 import { FacturasSinAsignar } from './screens/FacturasSinAsignar';
@@ -62,6 +63,7 @@ function RouteRenderer() {
     case 'listado': return <Listado />;
     case 'detalle': return <DetalleContrato id={route.id} />;
     case 'form': return <FormContrato id={route.id} />;
+    case 'formInmueble': return <FormInmueble />;
     case 'concPeriodo': return <ConciliacionPeriodo />;
     case 'concDiff': return <ConciliacionDiff id={route.id} />;
     case 'facturas': return <FacturasSinAsignar />;
