@@ -149,6 +149,7 @@ CREATE TABLE contrato (
     periodicidad_ajuste    NVARCHAR(20)   NULL,
     tipo_comprobante_id    SMALLINT       NULL,
     tolerancia_importe_pct DECIMAL(6,2)   NULL,
+    tipo_facturacion       NVARCHAR(30)   NULL,
     observaciones          NVARCHAR(MAX)  NULL,
     creado_en              DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
     cantidad_facturas      SMALLINT       NOT NULL DEFAULT 0,

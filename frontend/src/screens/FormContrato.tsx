@@ -59,46 +59,69 @@ export function FormContrato({ id }: { id?: number }) {
   }, []);
 
   useEffect(() => {
-    if (editing) {
-      api.get(`/contracts/${id}`).then((d: any) => {
-        setForm({
-          inmuebleId: d.inmuebleId,
-          nis: d.nis,
-          denominacion: d.denom,
-          direccion: d.direccion,
-          regionId: d.regionId,
-          localidadId: d.localidadId,
-          destinoId: d.destinoId,
-          superficieCubierta: d.supCubierta ?? '',
-          importeTotal: d.valorActual,
-          fechaInicio: str(d.inicio),
-          fechaVencimiento: str(d.vencimiento),
-          tolerancia: d.tolerancia,
-          indiceId: undefined,
-          periodicidad: d.periodicidad ?? 'TRIMESTRAL',
-          deposito: d.deposito,
-          tipoContratoId: 1,
-        });
+    if (!editing) return;
 
-        setReady(true);
+    api.get(`/contracts/${id}`).then((d: any) => {
+      console.log(d)
+      setForm({
+        inmuebleId: d.inmuebleId,
+        nis: d.nis,
+        denominacion: d.denom,
+        direccion: d.direccion,
+        regionId: d.regionId,
+        localidadId: d.localidadId,
+        destinoId: d.destinoId,
+        superficieCubierta: d.supCubierta ?? '',
+        importeTotal: d.valorActual,
+        fechaInicio: str(d.inicio),
+        fechaVencimiento: str(d.vencimiento),
+        tolerancia: d.tolerancia,
+        indiceId: d.indiceId,
+        periodicidad: d.periodicidad ?? 'TRIMESTRAL',
+        deposito: d.deposito,
+        tipoContratoId: d.tipoContratoId ?? 1,
+        tipoFacturacion: d.tipoFacturacion ?? 'mensual',
+        cantidad_facturas: d.cantidadFacturas ?? 1,
+        facturas_planificadas: d.facturas_planificadas ?? [],
+        locadorId: d.locadorId,
       });
-    }
-  }, [id]);
+
+      setModoInmueble('existente');
+      setBusquedaInmueble(
+        [d.nis, d.denom].filter(Boolean).join(' · ')
+      );
+
+      setReady(true);
+    });
+  }, [editing, id]);
 
   useEffect(() => {
-    if (editing || modoInmueble !== 'existente') return;
+    if (modoInmueble !== 'existente') return;
+
     const q = busquedaInmueble.trim();
+
     if (!q) {
       setOpcionesInmueble([]);
       return;
     }
+
     const t = window.setTimeout(() => {
-      api.get<any>('/inmuebles' + qs({ search: q, size: 8 }))
-        .then((res) => setOpcionesInmueble(res.rows ?? []))
-        .catch(() => setOpcionesInmueble([]));
+      api.get<any>(
+        '/inmuebles' + qs({
+          search: q,
+          size: 8,
+        })
+      )
+        .then((res) => {
+          setOpcionesInmueble(res.rows ?? []);
+        })
+        .catch(() => {
+          setOpcionesInmueble([]);
+        });
     }, 250);
+
     return () => window.clearTimeout(t);
-  }, [busquedaInmueble, modoInmueble, editing]);
+  }, [busquedaInmueble, modoInmueble]);
 
   async function elegirInmueble(inmuebleId: number) {
     const d = await api.get<any>(`/inmuebles/${inmuebleId}`);
@@ -147,7 +170,7 @@ async function save() {
   try {
     console.log(form);
 
-    const facturas = form.facturas ?? [];
+    const facturas = form.facturas_planificadas ?? [];
 
     const totalPorcentaje = facturas.reduce(
       (total: number, factura: { porcentaje: any }) =>
@@ -161,7 +184,7 @@ async function save() {
       return;
     }
 
-    if (!editing && modoInmueble === 'existente' && !form.inmuebleId) {
+    if (modoInmueble === 'existente' && !form.inmuebleId) {
       setError('Seleccioná un inmueble existente.');
       setSaving(false);
       return;
@@ -170,7 +193,7 @@ async function save() {
     setError('');
 
     const payload = { ...form };
-    if (!editing && modoInmueble === 'nuevo') delete payload.inmuebleId;
+    if (modoInmueble === 'nuevo') delete payload.inmuebleId;
 
     if (editing) {
       console.log("viene a put")
@@ -202,7 +225,7 @@ async function save() {
 }
 
 
-  const inmuebleBloqueado = editing || modoInmueble === 'existente';
+  const inmuebleBloqueado = modoInmueble === 'existente';
   const lockedInput = { background: c.fieldBg, cursor: 'not-allowed' as const };
 
   const sections: { key: string; titulo: string; body: ReactNode }[] = [
@@ -211,31 +234,72 @@ async function save() {
       titulo: 'Inmueble',
       body: (
         <>
-          {!editing && (
-            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                style={modoInmueble === 'existente' ? s.btnPrimary : s.btn}
-                onClick={() => setModoInmueble('existente')}
-              >
-                Inmueble existente
-              </button>
-              <button
-                type="button"
-                style={modoInmueble === 'nuevo' ? s.btnPrimary : s.btn}
-                onClick={() => {
-                  setModoInmueble('nuevo');
-                  set('inmuebleId', undefined);
-                  setBusquedaInmueble('');
-                  setOpcionesInmueble([]);
-                }}
-              >
-                Cargar nuevo
-              </button>
-            </div>
-          )}
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: 'flex',
+              gap: 8,
+            }}
+          >
+            <button
+              type="button"
+              style={
+                modoInmueble === 'existente'
+                  ? s.btnPrimary
+                  : s.btn
+              }
+              onClick={() => {
+                setModoInmueble('existente');
 
-          {!editing && modoInmueble === 'existente' && (
+                /*
+                * Conservamos el inmueble actual mientras el usuario
+                * todavía no haya elegido otro.
+                */
+                setBusquedaInmueble(
+                  form.inmuebleId
+                    ? [form.nis, form.denominacion]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : ''
+                );
+
+                setOpcionesInmueble([]);
+              }}
+            >
+              Inmueble existente
+            </button>
+
+            <button
+              type="button"
+              style={
+                modoInmueble === 'nuevo'
+                  ? s.btnPrimary
+                  : s.btn
+              }
+              onClick={() => {
+                setModoInmueble('nuevo');
+
+                setForm((f) => ({
+                  ...f,
+                  inmuebleId: undefined,
+                  nis: '',
+                  denominacion: '',
+                  direccion: '',
+                  regionId: '',
+                  localidadId: '',
+                  destinoId: '',
+                  superficieCubierta: '',
+                }));
+
+                setBusquedaInmueble('');
+                setOpcionesInmueble([]);
+              }}
+            >
+              Cargar nuevo
+            </button>
+          </div>
+
+          {modoInmueble === 'existente' && (
             <div style={{ gridColumn: '1 / -1', position: 'relative' }}>
               <label style={s.label}>Buscar inmueble</label>
               <input
@@ -449,7 +513,7 @@ async function save() {
                   set('cantidad_facturas', cantidad);
 
                   set(
-                    'facturas',
+                    'facturas_planificadas',
                     generarPorcentajes(cantidad).map(
                       (porcentaje, index) => ({
                         numero: index + 1,
@@ -464,7 +528,7 @@ async function save() {
                 } else {
                   set('cantidad_facturas', 1);
 
-                  set('facturas', [
+                  set('facturas_planificadas', [
                     {
                       numero: 1,
                       porcentaje: 100,
@@ -499,7 +563,7 @@ async function save() {
                     set('cantidad_facturas', cantidad);
 
                     set(
-                      'facturas',
+                      'facturas_planificadas',
                       generarPorcentajes(cantidad).map(
                         (porcentaje, index) => ({
                           numero: index + 1,
@@ -533,7 +597,7 @@ async function save() {
                     set('cantidad_facturas', cantidad);
 
                     set(
-                      'facturas',
+                      'facturas_planificadas',
                       generarPorcentajes(cantidad).map(
                         (porcentaje, index) => ({
                           numero: index + 1,
@@ -566,7 +630,7 @@ async function save() {
                   set('cantidad_facturas', cantidad);
 
                   set(
-                    'facturas',
+                    'facturas_planificadas',
                     generarPorcentajes(cantidad).map(
                       (porcentaje, index) => ({
                         numero: index + 1,
@@ -583,7 +647,7 @@ async function save() {
             </F>
           )}
 
-          {(form.facturas ?? []).map((factura: any, index: number) => {
+          {(form.facturas_planificadas ?? []).map((factura: any, index: number) => {
             const importe =
               (Number(form.importeTotal) || 0) *
               (Number(factura.porcentaje) || 0) /
@@ -620,7 +684,7 @@ async function save() {
                       }}
                       value={factura.porcentaje}
                       onChange={(e) => {
-                        const facturas = [...form.facturas];
+                        const facturas = [...form.facturas_planificadas];
 
                         facturas[index] = {
                           ...facturas[index],
@@ -630,7 +694,7 @@ async function save() {
                           ),
                         };
 
-                        set('facturas', facturas);
+                        set('facturas_planificadas', facturas);
                       }}
                     />
 

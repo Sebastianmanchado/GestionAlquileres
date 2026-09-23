@@ -141,7 +141,7 @@ public class ContractService {
         int estadoId = estadoFromVencimiento(venc);
 
         List<Map<String, Object>> facturas =
-            (List<Map<String, Object>>) body.get("facturas");
+            (List<Map<String, Object>>) body.get("facturas_planificadas");
 
         String numero = nextContractNumber();
 
@@ -173,13 +173,14 @@ public class ContractService {
                 .addValue("periodicidad", str(body.getOrDefault("periodicidad", "TRIMESTRAL")))
                 .addValue("tipoComp", asInt(body.getOrDefault("tipoComprobanteId", 1)))
                 .addValue("tolerancia", tolerancia)
+                .addValue("tipoFacturacion", str(body.getOrDefault("tipoFacturacion", "mensual")))
                 .addValue("cantidad_facturas", asInt(body.getOrDefault("cantidad_facturas", 1)));
         repo.jdbc().update("""
             INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                                   fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
-                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, cantidad_facturas)
+                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, tipo_facturacion, cantidad_facturas)
             VALUES (:numero, :inmuebleId, :locadorId, :acreedorId, :tipoContrato, :estadoId,
-                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :cantidad_facturas)
+                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :tipoFacturacion, :cantidad_facturas)
             """, p, kh, new String[]{"id"});
         long contratoId = kh.getKey().longValue();
         log.info("se inserto contrato");
@@ -289,7 +290,7 @@ public class ContractService {
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> facturas =
-            (List<Map<String, Object>>) body.get("facturas");
+            (List<Map<String, Object>>) body.get("facturas_planificadas");
 
         int estadoId = estadoFromVencimiento(venc);
 
@@ -311,6 +312,7 @@ public class ContractService {
             .addValue("periodicidad", periodicidad)
             .addValue("tipoComp", tipoComprobanteId)
             .addValue("tolerancia", tolerancia)
+            .addValue("tipoFacturacion", str(body.getOrDefault("tipoFacturacion", "mensual")))
             .addValue("cantidadFacturas", facturas.size());
 
         repo.jdbc().update("""
@@ -329,6 +331,7 @@ public class ContractService {
                 periodicidad_ajuste = :periodicidad,
                 tipo_comprobante_id = :tipoComp,
                 tolerancia_importe_pct = :tolerancia,
+                tipo_facturacion = :tipoFacturacion,
                 cantidad_facturas = :cantidadFacturas
             WHERE id = :id
             """,
@@ -715,7 +718,7 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
         }
     }
 
-    Object facturasObj = body.get("facturas");
+    Object facturasObj = body.get("facturas_planificadas");
 
     if (facturasObj == null) {
         throw new BadRequestException(

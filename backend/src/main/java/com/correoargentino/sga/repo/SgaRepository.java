@@ -261,7 +261,7 @@ public class SgaRepository {
                    tc.nombre AS tipo,
                    c.fecha_inicio AS inicio, c.fecha_vencimiento AS vencimiento,
                    c.moneda, c.importe_inicial AS importeInicial, c.deposito_garantia AS deposito,
-                   c.periodicidad_ajuste AS periodicidad, c.tolerancia_importe_pct AS tolerancia,
+                   c.periodicidad_ajuste AS periodicidad, c.tolerancia_importe_pct AS tolerancia, c.locador_id AS locadorId, c.indice_ajuste_id AS indiceId, c.tipo_facturacion as tipoFacturacion, c.tipo_contrato_id AS tipoContratoId,
                    ia.codigo AS indiceCodigo, ia.nombre AS indiceNombre,
                    lo.razon_social AS locadorRazon, lo.cuit AS locadorCuit, lo.email AS locadorEmail, lo.telefono AS locadorTelefono,
                    sap.codigo_sap AS acreedorSap,
@@ -283,6 +283,23 @@ public class SgaRepository {
              WHERE c.id=:id
             """, p);
         if (head == null) return null;
+
+        head.put(
+            "facturas_planificadas",
+            query(
+                """
+                SELECT
+                    fp.id,
+                    fp.porcentaje_esperado AS porcentaje,
+                    fp.monto_esperado AS monto,
+                    fp.estado
+                FROM factura_planificada fp
+                WHERE fp.contrato_id = :id
+                ORDER BY fp.id
+                """,
+                p
+            )
+        );
 
         Object valorActual = jdbc.query("SELECT TOP 1 importe_mensual FROM contrato_valor WHERE contrato_id=:id AND vigencia_hasta IS NULL",
                 p, (rs) -> rs.next() ? rs.getBigDecimal(1) : null);
