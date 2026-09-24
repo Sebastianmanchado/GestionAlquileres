@@ -291,7 +291,7 @@ public class SgaRepository {
                 SELECT
                     fp.id,
                     fp.porcentaje_esperado AS porcentaje,
-                    fp.monto_esperado AS monto,
+                    fp.monto_esperado AS importe,
                     fp.estado
                 FROM factura_planificada fp
                 WHERE fp.contrato_id = :id
@@ -456,5 +456,133 @@ public class SgaRepository {
         if (column == null) column = fallback;
         String direction = "desc".equalsIgnoreCase(dir) ? "DESC" : "ASC";
         return column + " " + direction;
+    }
+
+    private static final Map<String, String> INDICE_SORT = Map.of(
+        "codigo", "ia.codigo",
+        "nombre", "ia.nombre",
+        "fuente", "ia.fuente"
+    );
+
+    public long insertIndice(Map<String, Object> body) {
+
+        MapSqlParameterSource p = new MapSqlParameterSource()
+            .addValue("codigo", (String) body.get("codigo"))
+            .addValue("nombre", (String) body.get("nombre"))
+            .addValue("fuente", (String) body.get("fuente"));
+
+        Short nuevoId = jdbc.queryForObject(
+            """
+            SELECT ISNULL(MAX(id), 0) + 1
+            FROM indice_ajuste
+            """,
+            new MapSqlParameterSource(),
+            Short.class
+        );
+
+        p.addValue("id", nuevoId);
+
+        jdbc.update(
+            """
+            INSERT INTO indice_ajuste (
+                id,
+                codigo,
+                nombre,
+                fuente
+            )
+            VALUES (
+                :id,
+                :codigo,
+                :nombre,
+                :fuente
+            )
+            """,
+            p
+        );
+
+        return nuevoId == null ? 0L : nuevoId.longValue();
+    }
+
+    public Map<String, Object> listIndices(
+            String search,
+            int page,
+            int size,
+            String sort,
+            String dir) {
+
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        MapSqlParameterSource p = new MapSqlParameterSource();
+
+        if (search != null && !search.isBlank()) {
+            where.append("""
+                AND (
+                    ia.codigo LIKE :search
+                OR ia.nombre LIKE :search
+                OR ISNULL(ia.fuente, '') LIKE :search
+                )
+            """);
+
+            p.addValue("search", "%" + search.trim() + "%");
+        }
+
+        String from = """
+            FROM indice_ajuste ia
+            """ + where;
+
+        Integer total = jdbc.queryForObject(
+            "SELECT COUNT(*) " + from,
+            p,
+            Integer.class
+        );
+
+        String sql = """
+            SELECT
+                ia.id,
+                ia.codigo,
+                ia.nombre,
+                ia.fuente,
+                (
+                    SELECT COUNT(*)
+                    FROM contrato c
+                    WHERE c.indice_ajuste_id = ia.id
+                ) AS contratos
+            """
+            + from
+            + " ORDER BY "
+            + orderBy(sort, dir, INDICE_SORT, "ia.codigo")
+            + " OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
+
+        p.addValue("offset", page * size);
+        p.addValue("size", size);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        result.put("rows", query(sql, p));
+        result.put("total", total == null ? 0 : total);
+        result.put("page", page);
+        result.put("size", size);
+
+        return result;
+    }
+
+    public Map<String, Object> getIndice(long id) {
+
+        return queryOne(
+            """
+            SELECT
+                ia.id,
+                ia.codigo,
+                ia.nombre,
+                ia.fuente,
+                (
+                    SELECT COUNT(*)
+                    FROM contrato c
+                    WHERE c.indice_ajuste_id = ia.id
+                ) AS contratos
+            FROM indice_ajuste ia
+            WHERE ia.id = :id
+            """,
+            new MapSqlParameterSource("id", id)
+        );
     }
 }

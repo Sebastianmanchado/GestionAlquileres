@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +48,20 @@ public class ContractService {
         requireEdit();
 
         validateCreateBody(body);
+
+        Long indiceId;
+
+        if ("nuevo".equals(str(body.get("modoIndice")))) {
+            Map<String, Object> indice = new HashMap<>();
+
+            indice.put("codigo", str(body.get("indiceCodigo")));
+            indice.put("nombre", str(body.get("indiceNombre")));
+            indice.put("fuente", str(body.get("indiceFuente")));
+
+            indiceId = createIndice(indice);
+        } else {
+            indiceId = asLong(body.get("indiceId"));
+        }
 
         Long inmuebleId = asLong(body.get("inmuebleId"));
 
@@ -83,7 +98,6 @@ public class ContractService {
         log.info("paso inmueble y locador");
 
         Integer tipoContrato = asInt(body.getOrDefault("tipoContratoId", 1));
-        Integer indiceId = asInt(body.get("indiceId"));
 
         LocalDate inicio = asDate(
             body.getOrDefault(
@@ -233,6 +247,20 @@ public class ContractService {
         // =========================================================
         Map<String, Object> before = repo.getContractDetail(id);
 
+        Long indiceId;
+
+        if ("nuevo".equals(str(body.get("modoIndice")))) {
+            Map<String, Object> indice = new HashMap<>();
+
+            indice.put("codigo", str(body.get("indiceCodigo")));
+            indice.put("nombre", str(body.get("indiceNombre")));
+            indice.put("fuente", str(body.get("indiceFuente")));
+
+            indiceId = createIndice(indice);
+        } else {
+            indiceId = asLong(body.get("indiceId"));
+        }
+
         if (before == null) {
             throw new NotFoundException("Contrato no encontrado");
         }
@@ -274,7 +302,6 @@ public class ContractService {
         }
         
         Integer tipoContrato = asInt(body.get("tipoContratoId"));
-        Integer indiceId = asInt(body.get("indiceId"));
 
         LocalDate inicio = asDate(body.get("fechaInicio"));
         LocalDate venc = asDate(body.get("fechaVencimiento"));
@@ -582,6 +609,47 @@ public class ContractService {
         return insertInmueble(body);
     }
 
+    @Transactional
+    public long createIndice(Map<String, Object> body)
+            throws BadRequestException {
+
+        requireEdit();
+
+        String codigo = str(body.get("codigo"));
+        String nombre = str(body.get("nombre"));
+
+        if (codigo == null || codigo.isBlank()) {
+            throw new BadRequestException(
+                "El código del índice es obligatorio."
+            );
+        }
+
+        if (nombre == null || nombre.isBlank()) {
+            throw new BadRequestException(
+                "El nombre del índice es obligatorio."
+            );
+        }
+
+        Integer existe = repo.jdbc().queryForObject(
+            """
+            SELECT COUNT(*)
+            FROM indice_ajuste
+            WHERE codigo = :codigo
+            """,
+            new MapSqlParameterSource()
+                .addValue("codigo", codigo.trim()),
+            Integer.class
+        );
+
+        if (existe != null && existe > 0) {
+            throw new BadRequestException(
+                "Ya existe un índice con el código " + codigo + "."
+            );
+        }
+
+        return repo.insertIndice(body);
+    }
+
     private static Long asLong(Object o) {
         if (o == null) return null;
         if (o instanceof Number n) return n.longValue();
@@ -626,7 +694,9 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
 
     body.put("localidadId", parseIntField(body, "localidadId", "Localidad")); 
     body.put("regionId", parseIntField(body, "regionId", "Región")); 
-    body.put("indiceId", parseIntField(body, "indiceId", "Indice de Ajuste"));
+    if ("existente".equals(str(body.get("modoIndice")))){
+        body.put("indiceId", parseIntField(body, "indiceId", "Indice de Ajuste"));
+    }
 
     log.info("llega a pasar los int");
     
@@ -637,7 +707,9 @@ private void validateCreateBody(Map<String, Object> body) throws BadRequestExcep
     requireValidInt(body, "regionId", "Región");
 
     requireValidDecimal(body, "importeTotal", "Importe Total");
-    requireValidInt(body, "indiceId", "Indice de Ajuste");
+    if ("existente".equals(str(body.get("modoIndice")))){
+        requireValidInt(body, "indiceId", "Indice de Ajuste");
+    }
     requireValidString(body, "periodicidad", "Frecuencia");
     //requireValidInt(body, "tipoComprobanteId");
     requireValidDecimal(body, "tolerancia", "Tolerancia de Diferencia");

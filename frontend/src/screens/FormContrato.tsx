@@ -24,6 +24,12 @@ export function FormContrato({ id }: { id?: number }) {
   const [busquedaInmueble, setBusquedaInmueble] = useState('');
   const [opcionesInmueble, setOpcionesInmueble] = useState<any[]>([]);
 
+  const [modoIndice, setModoIndice] =
+    useState<'nuevo' | 'existente'>('existente');
+
+  const [busquedaIndice, setBusquedaIndice] = useState('');
+  const [opcionesIndice, setOpcionesIndice] = useState<any[]>([]);
+
   function calcularCantidadMeses(
     fechaInicio?: string,
     fechaFin?: string
@@ -86,6 +92,17 @@ export function FormContrato({ id }: { id?: number }) {
         locadorId: d.locadorId,
       });
 
+      console.log("COMO VIENE EL CONTRATO")
+      console.log(d)
+
+      setModoIndice('existente');
+
+      const indiceActual = (cat?.indices ?? []).find(
+        (x: any) => String(x.id) === String(d.indiceId)
+      );
+
+      elegirIndice(d.indiceId)
+
       setModoInmueble('existente');
       setBusquedaInmueble(
         [d.nis, d.denom].filter(Boolean).join(' · ')
@@ -94,6 +111,34 @@ export function FormContrato({ id }: { id?: number }) {
       setReady(true);
     });
   }, [editing, id]);
+
+  useEffect(() => {
+    if (modoIndice !== 'existente') return;
+
+    const q = busquedaIndice.trim();
+
+    if (!q) {
+      setOpcionesIndice([]);
+      return;
+    }
+
+    const t = window.setTimeout(() => {
+      api.get<any>(
+        '/indices' + qs({
+          search: q,
+          size: 8,
+        })
+      )
+        .then((res) => {
+          setOpcionesIndice(res.rows ?? []);
+        })
+        .catch(() => {
+          setOpcionesIndice([]);
+        });
+    }, 250);
+
+    return () => window.clearTimeout(t);
+  }, [busquedaIndice, modoIndice]);
 
   useEffect(() => {
     if (modoInmueble !== 'existente') return;
@@ -122,6 +167,21 @@ export function FormContrato({ id }: { id?: number }) {
 
     return () => window.clearTimeout(t);
   }, [busquedaInmueble, modoInmueble]);
+
+  async function elegirIndice(indiceId: number) {
+    const d = await api.get<any>(`/indices/${indiceId}`);
+
+    setForm((f) => ({
+      ...f,
+      indiceId: d.id,
+      indiceCodigo: d.codigo ?? '',
+      indiceNombre: d.nombre ?? '',
+      indiceFuente: d.fuente ?? '',
+    }));
+
+    setBusquedaIndice(`${d.codigo} — ${d.nombre}`);
+    setOpcionesIndice([]);
+  }
 
   async function elegirInmueble(inmuebleId: number) {
     const d = await api.get<any>(`/inmuebles/${inmuebleId}`);
@@ -190,10 +250,31 @@ async function save() {
       return;
     }
 
+    if (modoIndice === 'existente' && !form.indiceId) {
+      setError('Seleccioná un índice de ajuste existente.');
+      setSaving(false);
+      return;
+    }
+
+    if (
+      modoIndice === 'nuevo' &&
+      (!form.indiceCodigo?.trim() || !form.indiceNombre?.trim())
+    ) {
+      setError(
+        'Completá el código y el nombre del nuevo índice.'
+      );
+      setSaving(false);
+      return;
+    }
+
     setError('');
 
     const payload = { ...form };
     if (modoInmueble === 'nuevo') delete payload.inmuebleId;
+    if (modoIndice === 'nuevo') delete payload.indiceId;
+    console.log("=====================================")
+    payload.modoIndice = modoIndice;
+    console.log(payload)
 
     if (editing) {
       console.log("viene a put")
@@ -226,6 +307,7 @@ async function save() {
 
 
   const inmuebleBloqueado = modoInmueble === 'existente';
+  const indiceBloqueado = modoIndice === 'existente';
   const lockedInput = { background: c.fieldBg, cursor: 'not-allowed' as const };
 
   const sections: { key: string; titulo: string; body: ReactNode }[] = [
@@ -724,27 +806,161 @@ async function save() {
       titulo: 'Ajustes e índice',
       body: (
         <>
-          <F label="Índice de ajuste">
-            <select
-              style={{ ...s.input }}
-              value={form.indiceId ?? ''}
-              onChange={(e) => set('indiceId', e.target.value)}
-            >
-              <option value="">Seleccionar índice</option>
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: 'flex',
+              gap: 8,
+            }}
+          >
+            <button
+              type="button"
+              style={
+                modoIndice === 'existente'
+                  ? s.btnPrimary
+                  : s.btn
+              }
+              onClick={() => {
+                setModoIndice('existente');
 
-              {cat.indices.map((x: any) => (
-                <option key={x.id} value={x.id}>
-                  {x.codigo} — {x.nombre}
-                </option>
-              ))}
-            </select>
+                setBusquedaIndice(
+                  form.indiceId
+                    ? [form.indiceCodigo, form.indiceNombre]
+                        .filter(Boolean)
+                        .join(' — ')
+                    : ''
+                );
+
+                setOpcionesIndice([]);
+              }}
+            >
+              Índice existente
+            </button>
+
+            <button
+              type="button"
+              style={
+                modoIndice === 'nuevo'
+                  ? s.btnPrimary
+                  : s.btn
+              }
+              onClick={() => {
+                setModoIndice('nuevo');
+
+                setForm((f) => ({
+                  ...f,
+                  indiceId: undefined,
+                  indiceCodigo: '',
+                  indiceNombre: '',
+                  indiceFuente: '',
+                }));
+
+                setBusquedaIndice('');
+                setOpcionesIndice([]);
+              }}
+            >
+              Cargar nuevo
+            </button>
+          </div>
+
+          {modoIndice === 'existente' && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                position: 'relative',
+              }}
+            >
+              <label style={s.label}>Buscar índice</label>
+
+              <input
+                style={s.input}
+                value={busquedaIndice}
+                onChange={(e) =>
+                  setBusquedaIndice(e.target.value)
+                }
+                placeholder="Código, nombre o fuente"
+              />
+
+              {opcionesIndice.length > 0 && (
+                <div
+                  style={{
+                    ...s.panel,
+                    marginTop: 6,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {opcionesIndice.map((op) => (
+                    <div
+                      key={op.id}
+                      onClick={() => elegirIndice(op.id)}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        borderTop: `1px solid ${c.line}`,
+                        fontSize: 12.5,
+                      }}
+                    >
+                      <b>{op.codigo}</b> — {op.nombre}
+                      {op.fuente ? ` · ${op.fuente}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <F label="Código del índice">
+            <input
+              style={{
+                ...s.input,
+                ...(indiceBloqueado ? lockedInput : {}),
+              }}
+              value={form.indiceCodigo ?? ''}
+              disabled={indiceBloqueado}
+              onChange={(e) =>
+                set('indiceCodigo', e.target.value)
+              }
+              placeholder="ICL"
+            />
+          </F>
+
+          <F label="Nombre del índice">
+            <input
+              style={{
+                ...s.input,
+                ...(indiceBloqueado ? lockedInput : {}),
+              }}
+              value={form.indiceNombre ?? ''}
+              disabled={indiceBloqueado}
+              onChange={(e) =>
+                set('indiceNombre', e.target.value)
+              }
+              placeholder="Índice para Contratos de Locación"
+            />
+          </F>
+
+          <F label="Fuente" span={2}>
+            <input
+              style={{
+                ...s.input,
+                ...(indiceBloqueado ? lockedInput : {}),
+              }}
+              value={form.indiceFuente ?? ''}
+              disabled={indiceBloqueado}
+              onChange={(e) =>
+                set('indiceFuente', e.target.value)
+              }
+              placeholder="BCRA"
+            />
           </F>
 
           <F label="Frecuencia">
             <select
               style={{ ...s.input }}
               value={form.periodicidad ?? 'TRIMESTRAL'}
-              onChange={(e) => set('periodicidad', e.target.value)}
+              onChange={(e) =>
+                set('periodicidad', e.target.value)
+              }
             >
               <option value="TRIMESTRAL">Trimestral</option>
               <option value="CUATRIMESTRAL">Cuatrimestral</option>
