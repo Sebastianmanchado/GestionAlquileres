@@ -55,6 +55,29 @@ backend/     Spring Boot API + Flyway (schema + seed)
 frontend/    React SPA (Vite)
 ```
 
+## Versionado
+
+La versión se muestra en pequeño en el Sidebar, debajo del nombre del usuario, con el formato:
+
+```
+v1.000.001 - Gcia Data & IA
+```
+
+- **Solo varía la versión**; el sufijo `- Gcia Data & IA` es fijo.
+- Único lugar a editar: [`frontend/src/version.ts`](./frontend/src/version.ts) (`APP_VERSION`).
+- Formato `v<MAYOR>.<MENOR>.<PARCHE>` con MENOR y PARCHE de 3 dígitos:
+
+| Componente | Cuándo se incrementa | Ejemplo |
+|------------|----------------------|---------|
+| MAYOR | Cambio grande / release mayor (rompe compatibilidad o rediseño) | `v1.000.001` → `v2.000.000` |
+| MENOR | Funcionalidad nueva | `v1.000.001` → `v1.001.000` |
+| PARCHE | Corrección de bugs o ajuste menor | `v1.000.001` → `v1.000.002` |
+
+- Versión inicial: `v1.000.001`.
+- Regla de trabajo: cada merge a `main` que llegue a producción actualiza `APP_VERSION` en el mismo PR.
+
+> Esquema propuesto, pendiente de confirmación por el responsable del producto.
+
 ## Deploy cloud
 
 Guía paso a paso (Somee compartida con MatrizPonderada + Render + Vercel): **[DEPLOY.md](./DEPLOY.md)**

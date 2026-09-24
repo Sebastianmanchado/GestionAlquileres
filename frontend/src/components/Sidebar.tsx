@@ -1,6 +1,7 @@
 import { c } from '../theme';
 import { useApp } from '../context';
 import type { Route } from '../context';
+import { APP_VERSION_LABEL } from '../version';
 
 type Item = { key: string; label: string; screens: Route['screen'][]; target: Route };
 
@@ -77,6 +78,7 @@ export function Sidebar() {
       <div style={{ padding: '14px 16px', borderTop: `1px solid ${c.navyLine}`, fontSize: 11.5, color: c.muted3 }}>
         <div style={{ fontWeight: 600, color: '#e5e4e2' }}>{meta.roleLabel}</div>
         <div style={{ marginTop: 2 }}>{meta.displayName}</div>
+        <div style={{ marginTop: 6, fontSize: 9.5, color: '#777674' }}>{APP_VERSION_LABEL}</div>
       </div>
     </div>
   );
