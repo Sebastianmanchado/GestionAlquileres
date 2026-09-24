@@ -24,6 +24,13 @@ sga:
   cors:
     # Origenes permitidos para el frontend, separados por coma.
     allowed-origins: ${SGA_CORS_ORIGINS:http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173}
+  ajustes:
+    enabled: ${SGA_AJUSTES_AUTO:true}
+    cron: "${SGA_AJUSTES_CRON:0 30 6 * * *}"
+    zone: ${SGA_AJUSTES_ZONE:America/Argentina/Buenos_Aires}
+    ipc-series-url: https://apis.datos.gob.ar/series/api/series/
+    # v2.0 de Estadísticas BCRA responde 410. La serie vigente del ICL (variable 40) está en v4.0.
+    icl-base-url: https://api.bcra.gob.ar/estadisticas/v4.0/monetarias/
 
 springdoc:
   swagger-ui:

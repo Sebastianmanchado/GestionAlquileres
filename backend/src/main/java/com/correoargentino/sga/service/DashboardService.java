@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,6 +55,28 @@ public class DashboardService {
         kpi.put("periodo", periodo);
         kpi.put("facturasSinAsignar", sinAsignar);
         kpi.put("montoMensual", monto);
+        List<Map<String, Object>> ipc = repo.query("""
+                SELECT TOP 2 iv.periodo, iv.valor
+                  FROM indice_valor iv
+                  JOIN indice_ajuste ia ON ia.id = iv.indice_id
+                 WHERE ia.codigo = N'IPC' AND iv.origen = N'API'
+                 ORDER BY iv.periodo DESC
+                """, empty);
+        BigDecimal variacionIpc = null;
+        Object periodoIpc = null;
+        if (ipc.size() >= 2) {
+            BigDecimal actual = ipc.get(0).get("valor") instanceof BigDecimal v ? v : null;
+            BigDecimal anterior = ipc.get(1).get("valor") instanceof BigDecimal v ? v : null;
+            if (actual != null && anterior != null && anterior.signum() > 0) {
+                variacionIpc = actual.divide(anterior, 8, RoundingMode.HALF_UP)
+                        .subtract(BigDecimal.ONE)
+                        .movePointRight(2)
+                        .setScale(1, RoundingMode.HALF_UP);
+                periodoIpc = ipc.get(0).get("periodo");
+            }
+        }
+        kpi.put("ultimoIpc", variacionIpc);
+        kpi.put("ultimoIpcPeriodo", periodoIpc);
         out.put("kpi", kpi);
 
         // Evolución del gasto mensual (real, según facturas por período)
