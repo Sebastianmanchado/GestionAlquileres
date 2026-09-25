@@ -24,6 +24,11 @@ sga:
   cors:
     # Origenes permitidos para el frontend, separados por coma.
     allowed-origins: ${SGA_CORS_ORIGINS:http://localhost:5173,http://localhost:4173,http://127.0.0.1:5173}
+  sap:
+    url: ${SGA_SAP_URL:}
+    user: ${SGA_SAP_USER:}
+    password: ${SGA_SAP_PASSWORD:}
+    soap-action: ${SGA_SAP_SOAP_ACTION:}
   ajustes:
     enabled: ${SGA_AJUSTES_AUTO:true}
     cron: "${SGA_AJUSTES_CRON:0 30 6 * * *}"

@@ -20,6 +20,9 @@ export function ConciliacionPeriodo() {
   const [showSendModal, setShowSendModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showSendMenu, setShowSendMenu] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const [sendResult, setSendResult] = useState<any[]>([]);
 
   const [sendMode, setSendMode] = useState<
     'selected' | 'all' | 'ok' | 'okDiff'
@@ -76,6 +79,7 @@ export function ConciliacionPeriodo() {
     }
 
     setSendMode(mode);
+    setSendError('');
     setShowSendMenu(false);
     setShowSendModal(true);
   }
@@ -120,6 +124,29 @@ export function ConciliacionPeriodo() {
         return [];
     }
   })();
+
+  async function confirmarEnvio() {
+    const ids = rowsToSend.map((r: any) => r.id);
+    if (ids.length === 0) return;
+
+    setSending(true);
+    setSendError('');
+    try {
+      const res = await api.post<{ resultados: any[] }>('/reconciliations/sap', { ids });
+      setSendResult(res.resultados ?? []);
+      setShowSendModal(false);
+      setSelectedIds([]);
+      setShowSuccessModal(true);
+      reload();
+    } catch (e: any) {
+      setSendError(e.message ?? 'No se pudo enviar a SAP.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const enviados = sendResult.filter((r) => r.ok);
+  const rechazados = sendResult.filter((r) => !r.ok);
 
   return (
     <div>
@@ -753,6 +780,12 @@ export function ConciliacionPeriodo() {
               )}
             </div>
 
+            {sendError && (
+              <div style={{ padding: '0 18px 12px', fontSize: 13, color: c.danger }}>
+                {sendError}
+              </div>
+            )}
+
             <div
               style={{
                 padding:
@@ -775,14 +808,14 @@ export function ConciliacionPeriodo() {
               </button>
 
               <button
-                style={s.btnPrimary}
-                onClick={() => {
-                  setShowSendModal(false);
-                  setSelectedIds([]);
-                  setShowSuccessModal(true);
+                style={{
+                  ...s.btnPrimary,
+                  opacity: sending || rowsToSend.length === 0 ? 0.6 : 1,
                 }}
+                disabled={sending || rowsToSend.length === 0}
+                onClick={confirmarEnvio}
               >
-                Enviar
+                {sending ? 'Enviando…' : 'Enviar'}
               </button>
 
             </div>
@@ -826,39 +859,27 @@ export function ConciliacionPeriodo() {
               Envío a SAP
             </div>
 
-            <div
-              style={{
-                padding: 24,
-                textAlign: 'center'
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 32,
-                  marginBottom: 12
-                }}
-              >
-                ✓
+            <div style={{ padding: 18, maxHeight: 360, overflowY: 'auto' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+                {rechazados.length === 0
+                  ? 'Asientos enviados a SAP'
+                  : enviados.length === 0
+                    ? 'No se envió ningún asiento'
+                    : 'Envío parcial a SAP'}
               </div>
-
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  marginBottom: 8
-                }}
-              >
-                Contratos enviados a SAP
-              </div>
-
-              <div
-                style={{
-                  fontSize: 13,
-                  color: c.muted
-                }}
-              >
-                Los contratos seleccionados fueron enviados
-                correctamente.
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {sendResult.map((r, i) => (
+                  <div key={`${r.conciliacionId}-${r.facturaId ?? i}`} style={{ fontSize: 13 }}>
+                    <div style={{ fontWeight: 700 }}>
+                      NIS {r.nis ?? '—'}
+                      {r.comprobante ? ` · ${r.comprobante}` : ''}
+                      {r.ok ? ` · asiento ${r.asiento}` : ''}
+                    </div>
+                    {!r.ok && (
+                      <div style={{ color: c.danger, marginTop: 2 }}>{r.error}</div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
 

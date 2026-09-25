@@ -265,6 +265,8 @@ public class SgaRepository {
                    ia.codigo AS indiceCodigo, ia.nombre AS indiceNombre,
                    lo.razon_social AS locadorRazon, lo.cuit AS locadorCuit, lo.email AS locadorEmail, lo.telefono AS locadorTelefono,
                    sap.codigo_sap AS acreedorSap,
+                   c.ceco_sap AS cecoSap, c.division_sap AS divisionSap,
+                   c.cuenta_gasto AS cuentaGasto, c.indicador_impuesto AS indicadorImpuesto,
                    ant.numero AS contratoAnteriorNumero, ant.id AS contratoAnteriorId
               FROM contrato c
               JOIN inmueble i ON i.id=c.inmueble_id

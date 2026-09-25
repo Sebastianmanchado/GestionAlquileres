@@ -90,6 +90,11 @@ export function FormContrato({ id }: { id?: number }) {
         cantidad_facturas: d.cantidadFacturas ?? 1,
         facturas_planificadas: d.facturas_planificadas ?? [],
         locadorId: d.locadorId,
+        acreedorSapCodigo: d.acreedorSap ?? '',
+        cecoSap: d.cecoSap ?? '',
+        divisionSap: d.divisionSap ?? '',
+        cuentaGasto: d.cuentaGasto ?? '',
+        indicadorImpuesto: d.indicadorImpuesto ?? '',
       });
 
       console.log("COMO VIENE EL CONTRATO")
@@ -535,6 +540,51 @@ async function save() {
               value={form.cuit ?? ''}
               onChange={(e) => set('cuit', e.target.value)}
               placeholder="30-XXXXXXXX-X"
+            />
+          </F>
+
+          <F label="Acreedor SAP">
+            <input
+              style={s.input}
+              value={form.acreedorSapCodigo ?? ''}
+              onChange={(e) => set('acreedorSapCodigo', e.target.value)}
+              placeholder="A00822"
+            />
+          </F>
+
+          <F label="CeCo SAP">
+            <input
+              style={s.input}
+              value={form.cecoSap ?? ''}
+              onChange={(e) => set('cecoSap', e.target.value)}
+              placeholder="53025952"
+            />
+          </F>
+
+          <F label="División SAP">
+            <input
+              style={s.input}
+              value={form.divisionSap ?? ''}
+              onChange={(e) => set('divisionSap', e.target.value)}
+              placeholder="4952"
+            />
+          </F>
+
+          <F label="Cuenta de gasto">
+            <input
+              style={s.input}
+              value={form.cuentaGasto ?? ''}
+              onChange={(e) => set('cuentaGasto', e.target.value)}
+              placeholder="510802"
+            />
+          </F>
+
+          <F label="Indicador de impuestos">
+            <input
+              style={s.input}
+              value={form.indicadorImpuesto ?? ''}
+              onChange={(e) => set('indicadorImpuesto', e.target.value)}
+              placeholder="C1"
             />
           </F>
         </>

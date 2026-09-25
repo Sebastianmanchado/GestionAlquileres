@@ -156,7 +156,7 @@ public class InvoiceService {
             SELECT f.id, f.cuit_emisor AS cuit, f.razon_social AS razonSocial, f.numero_comprobante AS comprobante,
                    f.importe_total AS importe, f.importe_neto AS neto, f.importe_iva AS iva,
                    f.periodo_facturado AS periodo, f.fecha_emision AS fechaEmision, f.cae, f.estado AS estadoCodigo,
-                   f.punto_venta AS puntoVenta, f.observaciones,
+                   f.punto_venta AS puntoVenta, f.fecha_vto_cae AS fechaVtoCae, f.moneda, f.observaciones,
                    tc.nombre AS tipoComprobante, tc.id AS tipoComprobanteId,
                    c.id AS contratoId, i.nis AS contratoNis, i.denominacion AS contratoDenom
               FROM factura f
@@ -187,7 +187,11 @@ public class InvoiceService {
             .addValue("neto", factura.neto())
             .addValue("iva", factura.iva())
             .addValue("periodo", factura.periodo())
-            .addValue("tipoComp", 1)
+            .addValue("tipoComp", factura.tipoComprobanteId())
+            .addValue("puntoVenta", factura.puntoVenta())
+            .addValue("cae", factura.cae())
+            .addValue("fechaVtoCae", factura.fechaVtoCae())
+            .addValue("moneda", factura.moneda())
             .addValue("fechaEmision", factura.fechaEmision())
             .addValue("obs", factura.observaciones());
 
@@ -202,6 +206,10 @@ public class InvoiceService {
                 periodo_facturado,
                 fecha_emision,
                 tipo_comprobante_id,
+                punto_venta,
+                cae,
+                fecha_vto_cae,
+                moneda,
                 estado,
                 origen,
                 observaciones
@@ -216,6 +224,10 @@ public class InvoiceService {
                 :periodo,
                 :fechaEmision,
                 :tipoComp,
+                :puntoVenta,
+                :cae,
+                :fechaVtoCae,
+                :moneda,
                 'SIN_ASIGNAR',
                 'MANUAL',
                 :obs
@@ -711,7 +723,12 @@ private record FacturaValidada(
     BigDecimal neto,
     BigDecimal iva,
     LocalDate periodo,
-    LocalDate fechaEmision
+    LocalDate fechaEmision,
+    Integer puntoVenta,
+    Integer tipoComprobanteId,
+    String cae,
+    LocalDate fechaVtoCae,
+    String moneda
 ) {}
 
 private FacturaValidada validarFactura(Map<String, Object> body)
@@ -800,7 +817,87 @@ private FacturaValidada validarFactura(Map<String, Object> body)
         neto,
         iva,
         periodoFecha,
-        fechaEmision
+        fechaEmision,
+        puntoVenta(body.get("puntoVenta")),
+        tipoComprobanteId(str(body.get("tipo"))),
+        textoOpcional(body.get("cae")),
+        fechaOpcional(body.get("fechaVencimientoCae"), "fecha de vencimiento del CAE"),
+        moneda(body.get("moneda"))
     );
+}
+
+private Integer tipoComprobanteId(String tipo) throws BadRequestException {
+    if (tipo == null || tipo.isBlank()) {
+        return 1;
+    }
+    String codigo = switch (tipo.trim().toUpperCase()) {
+        case "A", "FA" -> "FA";
+        case "B", "FB" -> "FB";
+        case "C", "FC" -> "FC";
+        default -> throw new BadRequestException(
+            "El tipo de comprobante '" + tipo + "' no es válido. Use A o C."
+        );
+    };
+    List<Integer> ids = repo.jdbc().query(
+        "SELECT id FROM tipo_comprobante WHERE codigo = :codigo",
+        new MapSqlParameterSource("codigo", codigo),
+        (rs, rowNum) -> rs.getInt("id")
+    );
+    if (ids.isEmpty()) {
+        throw new BadRequestException("No existe el tipo de comprobante " + codigo + ".");
+    }
+    return ids.get(0);
+}
+
+private static Integer puntoVenta(Object raw) throws BadRequestException {
+    if (raw == null) {
+        return null;
+    }
+    String s = raw.toString().trim();
+    if (s.isEmpty()) {
+        return null;
+    }
+    try {
+        return Integer.parseInt(s);
+    } catch (NumberFormatException e) {
+        throw new BadRequestException("El punto de venta no es válido.");
+    }
+}
+
+private static String textoOpcional(Object raw) {
+    if (raw == null) {
+        return null;
+    }
+    String s = raw.toString().trim();
+    return s.isEmpty() ? null : s;
+}
+
+private static LocalDate fechaOpcional(Object raw, String nombre) throws BadRequestException {
+    if (raw == null) {
+        return null;
+    }
+    String s = raw.toString().trim();
+    if (s.isEmpty()) {
+        return null;
+    }
+    LocalDate fecha = asDate(raw);
+    if (fecha == null) {
+        throw new BadRequestException("La " + nombre + " no es válida.");
+    }
+    return fecha;
+}
+
+private static String moneda(Object raw) throws BadRequestException {
+    if (raw == null) {
+        return null;
+    }
+    String s = raw.toString().trim().toUpperCase();
+    if (s.isEmpty()) {
+        return null;
+    }
+    if (s.length() != 3) {
+        throw new BadRequestException("La moneda debe tener 3 caracteres.");
+    }
+    return s;
 }
 }

@@ -177,7 +177,6 @@ public class ContractService {
                 .addValue("numero", numero)
                 .addValue("inmuebleId", inmuebleId)
                 .addValue("locadorId", locadorId)
-                .addValue("acreedorId", asLong(body.get("acreedorSapId")))
                 .addValue("tipoContrato", tipoContrato)
                 .addValue("estadoId", estadoId)
                 .addValue("inicio", inicio)
@@ -189,13 +188,20 @@ public class ContractService {
                 .addValue("tipoComp", asInt(body.getOrDefault("tipoComprobanteId", 1)))
                 .addValue("tolerancia", tolerancia)
                 .addValue("tipoFacturacion", str(body.getOrDefault("tipoFacturacion", "mensual")))
-                .addValue("cantidad_facturas", asInt(body.getOrDefault("cantidad_facturas", 1)));
+                .addValue("cantidad_facturas", asInt(body.getOrDefault("cantidad_facturas", 1)))
+                .addValue("acreedorId", acreedorId(body, locadorId))
+                .addValue("cecoSap", blankToNull(body.get("cecoSap")))
+                .addValue("divisionSap", blankToNull(body.get("divisionSap")))
+                .addValue("cuentaGasto", blankToNull(body.get("cuentaGasto")))
+                .addValue("indicadorImpuesto", blankToNull(body.get("indicadorImpuesto")));
         repo.jdbc().update("""
             INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                                   fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
-                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, tipo_facturacion, cantidad_facturas)
+                                  indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct, tipo_facturacion, cantidad_facturas,
+                                  ceco_sap, division_sap, cuenta_gasto, indicador_impuesto)
             VALUES (:numero, :inmuebleId, :locadorId, :acreedorId, :tipoContrato, :estadoId,
-                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :tipoFacturacion, :cantidad_facturas)
+                    :inicio, :venc, 'ARS', :importe, :deposito, :indiceId, :periodicidad, :tipoComp, :tolerancia, :tipoFacturacion, :cantidad_facturas,
+                    :cecoSap, :divisionSap, :cuentaGasto, :indicadorImpuesto)
             """, p, kh, new String[]{"id"});
         long contratoId = kh.getKey().longValue();
         log.info("se inserto contrato");
@@ -311,7 +317,7 @@ public class ContractService {
         BigDecimal deposito = asDecimal(body.get("deposito"));
         BigDecimal tolerancia = asDecimal(body.get("tolerancia"));
 
-        Long acreedorSapId = asLong(body.get("acreedorSapId"));
+        Long acreedorSapId = acreedorId(body, locadorId);
         Integer tipoComprobanteId = asInt(body.get("tipoComprobanteId"));
 
         String periodicidad = str(body.get("periodicidad"));
@@ -341,7 +347,11 @@ public class ContractService {
             .addValue("tipoComp", tipoComprobanteId)
             .addValue("tolerancia", tolerancia)
             .addValue("tipoFacturacion", str(body.getOrDefault("tipoFacturacion", "mensual")))
-            .addValue("cantidadFacturas", facturas.size());
+            .addValue("cantidadFacturas", facturas.size())
+            .addValue("cecoSap", blankToNull(body.get("cecoSap")))
+            .addValue("divisionSap", blankToNull(body.get("divisionSap")))
+            .addValue("cuentaGasto", blankToNull(body.get("cuentaGasto")))
+            .addValue("indicadorImpuesto", blankToNull(body.get("indicadorImpuesto")));
 
         repo.jdbc().update("""
             UPDATE contrato
@@ -360,7 +370,11 @@ public class ContractService {
                 tipo_comprobante_id = :tipoComp,
                 tolerancia_importe_pct = :tolerancia,
                 tipo_facturacion = :tipoFacturacion,
-                cantidad_facturas = :cantidadFacturas
+                cantidad_facturas = :cantidadFacturas,
+                ceco_sap = :cecoSap,
+                division_sap = :divisionSap,
+                cuenta_gasto = :cuentaGasto,
+                indicador_impuesto = :indicadorImpuesto
             WHERE id = :id
             """,
             p
@@ -845,6 +859,50 @@ public class ContractService {
 
     private static String str(Object o) {
         return o == null ? null : o.toString();
+    }
+
+    private static String blankToNull(Object o) {
+        if (o == null) {
+            return null;
+        }
+        String s = o.toString().trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private Long acreedorId(Map<String, Object> body, Long locadorId) throws BadRequestException {
+        if (body.containsKey("acreedorSapCodigo")) {
+            return resolveAcreedor(blankToNull(body.get("acreedorSapCodigo")), locadorId);
+        }
+        return asLong(body.get("acreedorSapId"));
+    }
+
+    private Long resolveAcreedor(String codigo, Long locadorId) throws BadRequestException {
+        if (codigo == null) {
+            return null;
+        }
+        List<Long> ids = repo.jdbc().query(
+            "SELECT id FROM acreedor_sap WHERE codigo_sap = :codigo",
+            new MapSqlParameterSource("codigo", codigo),
+            (rs, rowNum) -> rs.getLong("id")
+        );
+        if (!ids.isEmpty()) {
+            return ids.get(0);
+        }
+        if (locadorId == null) {
+            throw new BadRequestException("No se puede crear el acreedor SAP sin un locador.");
+        }
+        KeyHolder kh = new GeneratedKeyHolder();
+        repo.jdbc().update("""
+            INSERT INTO acreedor_sap (codigo_sap, locador_id, descripcion)
+            VALUES (:codigo, :locadorId, :codigo)
+            """,
+            new MapSqlParameterSource()
+                .addValue("codigo", codigo)
+                .addValue("locadorId", locadorId),
+            kh,
+            new String[]{"id"}
+        );
+        return kh.getKey().longValue();
     }
 
 private void validateCreateBody(Map<String, Object> body) throws BadRequestException {
