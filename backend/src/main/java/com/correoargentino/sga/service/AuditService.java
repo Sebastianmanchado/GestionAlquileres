@@ -22,7 +22,11 @@ public class AuditService {
 
     public void log(String entidad, String entidadId, String accion, String descripcion,
                     String contratoRef, String antes, String despues) {
-        Long usuarioId = usuarioIdActual();
+        logAs(currentUser.currentUsername(), entidad, entidadId, accion, descripcion, contratoRef, antes, despues);
+    }
+
+    public void logAs(String username, String entidad, String entidadId, String accion, String descripcion,
+                      String contratoRef, String antes, String despues) {
         MapSqlParameterSource p = new MapSqlParameterSource()
                 .addValue("entidad", entidad)
                 .addValue("entidadId", entidadId)
@@ -31,17 +35,18 @@ public class AuditService {
                 .addValue("contratoRef", contratoRef)
                 .addValue("antes", antes)
                 .addValue("despues", despues)
-                .addValue("usuarioId", usuarioId);
+                .addValue("usuarioId", usuarioIdDe(username));
         repo.jdbc().update("""
             INSERT INTO auditoria (entidad, entidad_id, accion, descripcion, contrato_ref, datos_antes, datos_despues, usuario_id)
             VALUES (:entidad, :entidadId, :accion, :descripcion, :contratoRef, :antes, :despues, :usuarioId)
             """, p);
     }
 
-    private Long usuarioIdActual() {
+    private Long usuarioIdDe(String username) {
+        if (username == null || username.isBlank()) return null;
         try {
             return repo.jdbc().queryForObject("SELECT id FROM usuario WHERE username=:u",
-                    new MapSqlParameterSource("u", currentUser.currentUsername()), Long.class);
+                    new MapSqlParameterSource("u", username), Long.class);
         } catch (Exception e) {
             return null;
         }

@@ -2,13 +2,14 @@ import { api } from '../api';
 import { useApp } from '../context';
 import { useAsync } from '../hooks';
 import { c, s } from '../theme';
-import { money, mesCorto } from '../format';
+import { money, mesCorto, periodo } from '../format';
 
 type Dash = {
   kpi: {
     contratosVigentes: number; contratosVencidos: number; contratosTotales: number;
     contratosProximos: number; vencen90: number; carteraPct: number; concConDiferencia: number; concProcesadas: number;
     periodo: string; facturasSinAsignar: number; montoMensual: number;
+    ultimoIpc: number | null; ultimoIpcPeriodo: string | null;
   };
   chart: { periodo: string; total: number }[];
   attention: string[];
@@ -29,6 +30,7 @@ export function Dashboard() {
     { label: 'Conciliaciones del mes con diferencia', value: `${k.concConDiferencia}`, sub: `de ${k.concProcesadas} procesadas` },
     { label: 'Facturas pendientes de matchear', value: `${k.facturasSinAsignar}`, sub: 'bandeja sin asignar' },
     { label: 'Monto mensual comprometido', value: money(k.montoMensual), sub: 'período actual' },
+    { label: 'Último IPC', value: ipcPct(k.ultimoIpc), sub: k.ultimoIpcPeriodo ? periodo(k.ultimoIpcPeriodo) : 'variación mensual' },
   ];
 
   const maxTotal = Math.max(1, ...data.chart.map((b) => Number(b.total)));
@@ -79,6 +81,12 @@ export function Dashboard() {
       </div>
     </div>
   );
+}
+
+function ipcPct(n: number | null): string {
+  if (n == null || Number.isNaN(Number(n))) return '—';
+  const texto = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(n));
+  return texto + '%';
 }
 
 export function Loading() {
