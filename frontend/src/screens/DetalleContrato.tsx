@@ -14,7 +14,6 @@ const TABS: { key: string; label: string }[] = [
   { key: 'general', label: 'Datos generales' },
   { key: 'historial', label: 'Historial de valores' },
   { key: 'facturas', label: 'Facturas' },
-  { key: 'docs', label: 'Documentos' },
   { key: 'cambios', label: 'Historial de cambios' },
 ];
 
@@ -26,6 +25,7 @@ export function DetalleContrato({ id }: { id: number }) {
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error} />;
   const d = data;
+  console.log(data)
   const est = estadoContrato(d.estadoCodigo, d.estadoNombre);
   const direccion = [d.direccion, d.localidad, d.provincia].filter(Boolean).join(', ');
 
@@ -62,7 +62,6 @@ export function DetalleContrato({ id }: { id: number }) {
       {tab === 'general' && <General d={d} direccion={direccion} />}
       {tab === 'historial' && <Historial d={d} canEdit={meta.canEdit} />}
       {tab === 'facturas' && <Facturas d={d} />}
-      {tab === 'docs' && <Documentos d={d} id={id} canEdit={meta.canEdit} onChange={reload} />}
       {tab === 'cambios' && <Cambios d={d} />}
     </div>
   );
@@ -179,56 +178,6 @@ function Facturas({ d }: { d: Detail }) {
           </div>
         </div>
       ))}
-    </div>
-  );
-}
-
-function Documentos({ d, id, canEdit, onChange }: { d: Detail; id: number; canEdit: boolean; onChange: () => void }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [tipo, setTipo] = useState('Contrato firmado');
-  const [busy, setBusy] = useState(false);
-
-  async function upload(file: File) {
-    setBusy(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('contratoId', String(id));
-      form.append('tipoDocumento', tipo);
-      await api.upload('/documents', form);
-      onChange();
-    } finally { setBusy(false); }
-  }
-
-  return (
-    <div>
-      {canEdit && (
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-          <select style={s.select} value={tipo} onChange={(e) => setTipo(e.target.value)}>
-            <option>Contrato firmado</option><option>Adenda</option><option>Póliza de caución</option><option>Otro</option>
-          </select>
-          <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
-          <button style={s.btn} disabled={busy} onClick={() => fileRef.current?.click()}>{busy ? 'Subiendo…' : 'Subir documento'}</button>
-        </div>
-      )}
-      <div
-        onClick={() => canEdit && fileRef.current?.click()}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f && canEdit) upload(f); }}
-        style={{ border: `1.5px dashed #c7c6c3`, borderRadius: 4, padding: 24, textAlign: 'center', color: c.muted2, fontSize: 12.5, marginBottom: 16, cursor: canEdit ? 'pointer' : 'default' }}>
-        {canEdit ? 'Arrastrá un archivo aquí o hacé clic para subir (contrato firmado, adenda, póliza de caución)' : 'Sólo lectura'}
-      </div>
-      <div style={{ ...s.panel, overflow: 'hidden' }}>
-        {d.documents.length === 0 && <div style={{ padding: 16, fontSize: 12.5, color: c.muted2 }}>Sin documentos adjuntos.</div>}
-        {d.documents.map((doc: any, i: number) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 1fr 160px 120px', borderTop: i ? `1px solid ${c.line}` : 'none', fontSize: 12.5, alignItems: 'center' }}>
-            <div style={{ padding: '10px 12px' }}><span style={{ width: 14, height: 16, border: '1.5px solid #8a8985', display: 'inline-block' }} /></div>
-            <div style={{ padding: '10px 12px' }}><a href={`/api/documents/${doc.id}/download`} target="_blank" rel="noreferrer">{doc.nombre}</a></div>
-            <div style={{ padding: '10px 12px', color: c.muted }}>{doc.tipo}</div>
-            <div style={{ padding: '10px 12px', color: c.muted }}>{dateAr(doc.fecha)}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

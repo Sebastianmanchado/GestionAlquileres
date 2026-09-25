@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +22,36 @@ import java.util.Map;
 public class SgaRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
+    private static final int ESTADO_VIGENTE     = 1;
+    private static final int ESTADO_VENCIDO     = 3;
+    private static final int ESTADO_RESCINDIDO  = 4;
+
+    private static final Map<String, String> CONTRACT_SORT = Map.ofEntries(
+            Map.entry("nis", "i.nis"),
+            Map.entry("denom", "i.denominacion"),
+            Map.entry("region", "r.nombre"),
+            Map.entry("localidad", "l.nombre"),
+            Map.entry("provincia", "p.nombre"),
+            Map.entry("destino", "destino"),
+            Map.entry("valorActual", "valorActual"),
+            Map.entry("indice", "ia.codigo"),
+            Map.entry("tipo", "tc.nombre"),
+            Map.entry("inicio", "c.fecha_inicio"),
+            Map.entry("vencimiento", "c.fecha_vencimiento"),
+            Map.entry("estado", "ec.nombre"),
+            Map.entry("propietario", "lo.razon_social")
+    );
+
+    private static final Map<String, String> INMUEBLE_SORT = Map.ofEntries(
+            Map.entry("nis", "i.nis"),
+            Map.entry("denom", "i.denominacion"),
+            Map.entry("region", "r.nombre"),
+            Map.entry("localidad", "l.nombre"),
+            Map.entry("provincia", "p.nombre"),
+            Map.entry("direccion", "i.direccion"),
+            Map.entry("destino", "d.destino"),
+            Map.entry("superficie", "i.superficie_cubierta_m2")
+    );
 
     public SgaRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -67,6 +98,7 @@ public class SgaRepository {
         SELECT c.id,
                i.nis,
                i.denominacion                         AS denom,
+               i.responsable                          AS responsable,
                r.nombre                               AS region,
                l.nombre                               AS localidad,
                p.nombre                               AS provincia,
@@ -83,7 +115,8 @@ public class SgaRepository {
                c.fecha_vencimiento                    AS vencimiento,
                ec.codigo                              AS estadoCodigo,
                ec.nombre                              AS estadoNombre,
-               lo.razon_social                        AS propietario
+               lo.razon_social                        AS propietario,
+               lo.cuit                                 AS locadorCuit
           FROM contrato c
           JOIN inmueble i          ON i.id = c.inmueble_id
           LEFT JOIN region r       ON r.id = i.region_id
@@ -96,14 +129,59 @@ public class SgaRepository {
          WHERE ec.id <> 4 /*FILTERS*/
         """;
 
+    private int recalcularEstadosContrato() {
+        MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("hoy",        java.sql.Date.valueOf(LocalDate.now()))
+                .addValue("vigente",    ESTADO_VIGENTE)
+                .addValue("vencido",    ESTADO_VENCIDO)
+                .addValue("rescindido", ESTADO_RESCINDIDO);
+
+        String sql = """
+                UPDATE c
+                SET c.estado_contrato_id =
+                        CASE
+                            WHEN c.fecha_vencimiento < :hoy THEN :vencido
+                            ELSE :vigente
+                        END
+                FROM contrato c
+                WHERE c.estado_contrato_id <> :rescindido
+                AND c.fecha_vencimiento IS NOT NULL
+                AND c.estado_contrato_id <>
+                        CASE
+                            WHEN c.fecha_vencimiento < :hoy THEN :vencido
+                            ELSE :vigente
+                        END
+                """;
+
+        return jdbc.update(sql, p);
+    }
+
     public Map<String, Object> listContracts(String search, String region, String estado,
-                                             String indice, String venc, int page, int size) {
+                                            String indice, String venc, int page, int size,
+                                            String sort, String dir) {
+
+        int estadosActualizados = recalcularEstadosContrato();
+
         StringBuilder where = new StringBuilder();
         MapSqlParameterSource p = new MapSqlParameterSource();
 
         if (search != null && !search.isBlank()) {
-            where.append(" AND (i.nis LIKE :search OR i.denominacion LIKE :search)");
-            p.addValue("search", "%" + search.trim() + "%");
+            String q = search.trim();
+            where.append("""
+                 AND (
+                      i.nis LIKE :search
+                   OR i.denominacion LIKE :search
+                   OR ISNULL(i.responsable,'') LIKE :search
+                   OR lo.razon_social LIKE :search
+                   OR lo.cuit LIKE :search
+            """);
+            p.addValue("search", "%" + q + "%");
+            String digits = q.replaceAll("[^0-9]", "");
+            if (digits.length() >= 3) {
+                where.append(" OR lo.cuit LIKE :searchCuit");
+                p.addValue("searchCuit", "%" + digits + "%");
+            }
+            where.append(")");
         }
         if (region != null && !region.isBlank() && !region.startsWith("Región")) {
             where.append(" AND r.nombre = :region");
@@ -119,9 +197,18 @@ public class SgaRepository {
         }
         if (venc != null && !venc.isBlank()) {
             switch (venc) {
-                case "30" -> where.append(" AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,30,CAST(GETDATE() AS DATE))");
-                case "90" -> where.append(" AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,90,CAST(GETDATE() AS DATE))");
-                case "vencidos" -> where.append(" AND c.fecha_vencimiento < CAST(GETDATE() AS DATE)");
+                case "30" -> {
+                    where.append(" AND c.fecha_vencimiento BETWEEN :hoyF AND DATEADD(DAY,30,:hoyF)");
+                    p.addValue("hoyF", java.sql.Date.valueOf(LocalDate.now()));
+                }
+                case "90" -> {
+                    where.append(" AND c.fecha_vencimiento BETWEEN :hoyF AND DATEADD(DAY,90,:hoyF)");
+                    p.addValue("hoyF", java.sql.Date.valueOf(LocalDate.now()));
+                }
+                case "vencidos" -> {
+                    where.append(" AND c.fecha_vencimiento < :hoyF");
+                    p.addValue("hoyF", java.sql.Date.valueOf(LocalDate.now()));
+                }
                 default -> { }
             }
         }
@@ -135,12 +222,15 @@ public class SgaRepository {
                 "JOIN estado_contrato ec ON ec.id=c.estado_contrato_id " +
                 "JOIN locador lo ON lo.id=c.locador_id " +
                 "LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id " +
-                "WHERE ec.id <> 4" + where;
+                "WHERE ec.id <> :rescindido" + where;
+
+        p.addValue("rescindido", ESTADO_RESCINDIDO);
 
         Integer total = jdbc.queryForObject("SELECT COUNT(*) " + base, p, Integer.class);
 
         String dataSql = CONTRACT_SELECT.replace("/*FILTERS*/", where.toString()) +
-                " ORDER BY i.nis OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
+                " ORDER BY " + orderBy(sort, dir, CONTRACT_SORT, "i.nis") +
+                " OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
         p.addValue("offset", page * size);
         p.addValue("size", size);
 
@@ -151,6 +241,7 @@ public class SgaRepository {
         result.put("total", total == null ? 0 : total);
         result.put("page", page);
         result.put("size", size);
+        result.put("estadosActualizados", estadosActualizados);
         return result;
     }
 
@@ -159,7 +250,9 @@ public class SgaRepository {
     public Map<String, Object> getContractDetail(long id) {
         MapSqlParameterSource p = new MapSqlParameterSource("id", id);
         Map<String, Object> head = queryOne("""
-            SELECT c.id, c.numero, i.nis, i.denominacion AS denom,
+            SELECT c.id, c.numero, i.id AS inmuebleId, i.nis, i.denominacion AS denom,
+                   i.region_id AS regionId, i.localidad_id AS localidadId,
+                   (SELECT TOP 1 idd.destino_id FROM inmueble_destino idd WHERE idd.inmueble_id = i.id) AS destinoId,
                    i.direccion, l.nombre AS localidad, p.nombre AS provincia, r.nombre AS region,
                    du.destino AS destino,
                    i.superficie_cubierta_m2 AS supCubierta, i.superficie_terreno_m2 AS supTerreno,
@@ -168,7 +261,7 @@ public class SgaRepository {
                    tc.nombre AS tipo,
                    c.fecha_inicio AS inicio, c.fecha_vencimiento AS vencimiento,
                    c.moneda, c.importe_inicial AS importeInicial, c.deposito_garantia AS deposito,
-                   c.periodicidad_ajuste AS periodicidad, c.tolerancia_importe_pct AS tolerancia,
+                   c.periodicidad_ajuste AS periodicidad, c.tolerancia_importe_pct AS tolerancia, c.locador_id AS locadorId, c.indice_ajuste_id AS indiceId, c.tipo_facturacion as tipoFacturacion, c.tipo_contrato_id AS tipoContratoId,
                    ia.codigo AS indiceCodigo, ia.nombre AS indiceNombre,
                    lo.razon_social AS locadorRazon, lo.cuit AS locadorCuit, lo.email AS locadorEmail, lo.telefono AS locadorTelefono,
                    sap.codigo_sap AS acreedorSap,
@@ -190,6 +283,23 @@ public class SgaRepository {
              WHERE c.id=:id
             """, p);
         if (head == null) return null;
+
+        head.put(
+            "facturas_planificadas",
+            query(
+                """
+                SELECT
+                    fp.id,
+                    fp.porcentaje_esperado AS porcentaje,
+                    fp.monto_esperado AS importe,
+                    fp.estado
+                FROM factura_planificada fp
+                WHERE fp.contrato_id = :id
+                ORDER BY fp.id
+                """,
+                p
+            )
+        );
 
         Object valorActual = jdbc.query("SELECT TOP 1 importe_mensual FROM contrato_valor WHERE contrato_id=:id AND vigencia_hasta IS NULL",
                 p, (rs) -> rs.next() ? rs.getBigDecimal(1) : null);
@@ -214,9 +324,15 @@ public class SgaRepository {
             """, p));
 
         head.put("documents", query("""
-            SELECT a.id, a.nombre_original AS nombre, ca.tipo_documento AS tipo, a.creado_en AS fecha
-              FROM contrato_archivo ca JOIN archivo a ON a.id=ca.archivo_id
-             WHERE ca.contrato_id=:id ORDER BY a.creado_en DESC
+            SELECT
+                a.id,
+                a.nombre_original AS nombre,
+                'FACTURA' AS tipo,
+                a.creado_en AS fecha
+            FROM factura f
+            JOIN archivo a ON a.factura_id = f.id
+            WHERE f.contrato_id = :id
+            ORDER BY a.creado_en DESC
             """, p));
 
         head.put("changeLog", query("""
@@ -245,5 +361,228 @@ public class SgaRepository {
         c.put("locadores", query("SELECT id, razon_social AS razonSocial, cuit FROM locador WHERE activo=1 ORDER BY razon_social", new MapSqlParameterSource()));
         c.put("centrosCosto", query("SELECT id, codigo, descripcion FROM centro_costo ORDER BY id", new MapSqlParameterSource()));
         return c;
+    }
+
+    /* ================= Inmuebles ================= */
+
+    public Map<String, Object> listInmuebles(String search, String region, int page, int size,
+                                             String sort, String dir) {
+        StringBuilder where = new StringBuilder(" WHERE i.activo = 1");
+        MapSqlParameterSource p = new MapSqlParameterSource();
+
+        if (search != null && !search.isBlank()) {
+            where.append("""
+                 AND (
+                      i.nis LIKE :search
+                   OR i.denominacion LIKE :search
+                   OR ISNULL(r.nombre,'') LIKE :search
+                 )
+            """);
+            p.addValue("search", "%" + search.trim() + "%");
+        }
+        if (region != null && !region.isBlank() && !region.startsWith("Región")) {
+            where.append(" AND r.nombre = :region");
+            p.addValue("region", region.trim());
+        }
+
+        String from = """
+            FROM inmueble i
+            LEFT JOIN region r ON r.id = i.region_id
+            LEFT JOIN localidad l ON l.id = i.localidad_id
+            LEFT JOIN provincia p ON p.id = l.provincia_id
+            OUTER APPLY (
+                SELECT TOP 1 du.nombre AS destino
+                  FROM inmueble_destino idd
+                  JOIN destino_uso du ON du.id = idd.destino_id
+                 WHERE idd.inmueble_id = i.id
+            ) d
+            """ + where;
+
+        Integer total = jdbc.queryForObject("SELECT COUNT(*) " + from, p, Integer.class);
+
+        String sql = """
+            SELECT i.id,
+                   i.nis,
+                   i.denominacion AS denom,
+                   r.nombre AS region,
+                   l.nombre AS localidad,
+                   p.nombre AS provincia,
+                   i.direccion,
+                   d.destino,
+                   i.superficie_cubierta_m2 AS superficie
+            """ + from + " ORDER BY " + orderBy(sort, dir, INMUEBLE_SORT, "i.nis") +
+                " OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
+        p.addValue("offset", page * size);
+        p.addValue("size", size);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("rows", query(sql, p));
+        result.put("total", total == null ? 0 : total);
+        result.put("page", page);
+        result.put("size", size);
+        return result;
+    }
+
+    public Map<String, Object> getInmueble(long id) {
+        return queryOne("""
+            SELECT i.id,
+                   i.nis,
+                   i.denominacion AS denominacion,
+                   i.direccion,
+                   i.region_id AS regionId,
+                   r.nombre AS region,
+                   i.localidad_id AS localidadId,
+                   l.nombre AS localidad,
+                   p.nombre AS provincia,
+                   i.superficie_cubierta_m2 AS superficieCubierta,
+                   d.destinoId,
+                   d.destino
+              FROM inmueble i
+              LEFT JOIN region r ON r.id = i.region_id
+              LEFT JOIN localidad l ON l.id = i.localidad_id
+              LEFT JOIN provincia p ON p.id = l.provincia_id
+              OUTER APPLY (
+                  SELECT TOP 1 idd.destino_id AS destinoId, du.nombre AS destino
+                    FROM inmueble_destino idd
+                    JOIN destino_uso du ON du.id = idd.destino_id
+                   WHERE idd.inmueble_id = i.id
+              ) d
+             WHERE i.id = :id
+            """, new MapSqlParameterSource("id", id));
+    }
+
+    private static String orderBy(String sort, String dir, Map<String, String> allowed, String fallback) {
+        String column = allowed.get(sort == null ? "" : sort.trim());
+        if (column == null) column = fallback;
+        String direction = "desc".equalsIgnoreCase(dir) ? "DESC" : "ASC";
+        return column + " " + direction;
+    }
+
+    private static final Map<String, String> INDICE_SORT = Map.of(
+        "codigo", "ia.codigo",
+        "nombre", "ia.nombre",
+        "fuente", "ia.fuente"
+    );
+
+    public long insertIndice(Map<String, Object> body) {
+
+        MapSqlParameterSource p = new MapSqlParameterSource()
+            .addValue("codigo", (String) body.get("codigo"))
+            .addValue("nombre", (String) body.get("nombre"))
+            .addValue("fuente", (String) body.get("fuente"));
+
+        Short nuevoId = jdbc.queryForObject(
+            """
+            SELECT ISNULL(MAX(id), 0) + 1
+            FROM indice_ajuste
+            """,
+            new MapSqlParameterSource(),
+            Short.class
+        );
+
+        p.addValue("id", nuevoId);
+
+        jdbc.update(
+            """
+            INSERT INTO indice_ajuste (
+                id,
+                codigo,
+                nombre,
+                fuente
+            )
+            VALUES (
+                :id,
+                :codigo,
+                :nombre,
+                :fuente
+            )
+            """,
+            p
+        );
+
+        return nuevoId == null ? 0L : nuevoId.longValue();
+    }
+
+    public Map<String, Object> listIndices(
+            String search,
+            int page,
+            int size,
+            String sort,
+            String dir) {
+
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        MapSqlParameterSource p = new MapSqlParameterSource();
+
+        if (search != null && !search.isBlank()) {
+            where.append("""
+                AND (
+                    ia.codigo LIKE :search
+                OR ia.nombre LIKE :search
+                OR ISNULL(ia.fuente, '') LIKE :search
+                )
+            """);
+
+            p.addValue("search", "%" + search.trim() + "%");
+        }
+
+        String from = """
+            FROM indice_ajuste ia
+            """ + where;
+
+        Integer total = jdbc.queryForObject(
+            "SELECT COUNT(*) " + from,
+            p,
+            Integer.class
+        );
+
+        String sql = """
+            SELECT
+                ia.id,
+                ia.codigo,
+                ia.nombre,
+                ia.fuente,
+                (
+                    SELECT COUNT(*)
+                    FROM contrato c
+                    WHERE c.indice_ajuste_id = ia.id
+                ) AS contratos
+            """
+            + from
+            + " ORDER BY "
+            + orderBy(sort, dir, INDICE_SORT, "ia.codigo")
+            + " OFFSET :offset ROWS FETCH NEXT :size ROWS ONLY";
+
+        p.addValue("offset", page * size);
+        p.addValue("size", size);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        result.put("rows", query(sql, p));
+        result.put("total", total == null ? 0 : total);
+        result.put("page", page);
+        result.put("size", size);
+
+        return result;
+    }
+
+    public Map<String, Object> getIndice(long id) {
+
+        return queryOne(
+            """
+            SELECT
+                ia.id,
+                ia.codigo,
+                ia.nombre,
+                ia.fuente,
+                (
+                    SELECT COUNT(*)
+                    FROM contrato c
+                    WHERE c.indice_ajuste_id = ia.id
+                ) AS contratos
+            FROM indice_ajuste ia
+            WHERE ia.id = :id
+            """,
+            new MapSqlParameterSource("id", id)
+        );
     }
 }

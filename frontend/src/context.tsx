@@ -3,9 +3,10 @@ import type { RoleCode } from './api';
 
 export type Route =
   | { screen: 'dashboard' }
-  | { screen: 'listado' }
+  | { screen: 'listado'; tab?: 'contratos' | 'inmuebles' }
   | { screen: 'detalle'; id: number }
   | { screen: 'form'; id?: number }
+  | { screen: 'formInmueble' }
   | { screen: 'concPeriodo' }
   | { screen: 'concDiff'; id: number }
   | { screen: 'facturas' }

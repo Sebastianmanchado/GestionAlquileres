@@ -1,21 +1,145 @@
-import { useState } from 'react';
-import { api } from '../api';
+import { useEffect, useState } from 'react';
+import { api, qs } from '../api';
 import { useApp } from '../context';
 import { c, s } from '../theme';
 import { money, periodo as fmtPeriodo } from '../format';
 import { useAsync } from '../hooks';
 import { Loading, ErrorBox } from './Dashboard';
+import { getApiRole } from '../api';
 
 const GRID = '150px 1fr 130px 120px 140px 220px';
+
+type ContratoPick = {
+  id: number;
+  nis: string;
+  unidad?: string;
+  responsable?: string;
+  cuit?: string;
+  razon?: string;
+  monto?: unknown;
+};
+
+function matchContrato(item: ContratoPick, q: string): boolean {
+  const term = q.trim().toLowerCase();
+  if (!term) return true;
+  const digits = term.replace(/\D/g, '');
+  const fields = [item.nis, item.unidad, item.responsable, item.cuit, item.razon];
+  if (fields.some((v) => String(v ?? '').toLowerCase().includes(term))) return true;
+  return digits.length >= 3 && String(item.cuit ?? '').replace(/\D/g, '').includes(digits);
+}
+
+function fromSugerencia(sug: any): ContratoPick {
+  return {
+    id: Number(sug.contratoId),
+    nis: sug.nis,
+    unidad: sug.sucursal,
+    responsable: sug.responsable,
+    cuit: sug.locadorCuit,
+    razon: sug.locadorRazon,
+    monto: sug.monto,
+  };
+}
+
+function fromContrato(row: any): ContratoPick {
+  return {
+    id: Number(row.id),
+    nis: row.nis,
+    unidad: row.denom,
+    responsable: row.responsable,
+    cuit: row.locadorCuit,
+    razon: row.propietario,
+    monto: row.valorActual,
+  };
+}
+
+function ContratoPickCard({ item, onPick }: { item: ContratoPick; onPick: () => void }) {
+  return (
+    <div
+      onClick={onPick}
+      style={{
+        border: `1px solid ${c.border}`,
+        borderRadius: 4,
+        padding: '8px 12px',
+        background: '#fff',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+        minWidth: 220,
+        maxWidth: 280,
+      }}
+    >
+      <PickLine label="NIS" value={item.nis} />
+      <PickLine label="Unidad de negocio" value={item.unidad} />
+      <PickLine label="Responsable" value={item.responsable} />
+      <PickLine label="CUIT locador" value={item.cuit} />
+      <PickLine label="Razón social" value={item.razon} />
+      <PickLine label="Monto" value={money(item.monto)} />
+    </div>
+  );
+}
+
+function PickLine({ label, value }: { label: string; value?: unknown }) {
+  const text = value == null || value === '' ? '—' : String(value);
+  return (
+    <div>
+      <span style={{ color: c.muted }}>{label} </span>
+      <span style={{ fontWeight: 600 }}>{text}</span>
+    </div>
+  );
+}
 
 export function FacturasSinAsignar() {
   const { navigate, meta, role } = useApp();
   const [expanded, setExpanded] = useState<number | null>(null);
   const { data, loading, error, reload } = useAsync<any[]>(() => api.get('/invoices/unassigned'), [role]);
+  const [filtro, setFiltro] = useState('');
+  const [searchResults, setSearchResults] = useState<ContratoPick[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const q = filtro.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    const t = window.setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await api.get<any>('/contracts' + qs({ search: q, size: 40 }));
+        setSearchResults((res.rows ?? []).map(fromContrato));
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [filtro]);
+
+  function toggleAssign(id: number) {
+    setExpanded((current) => {
+      const next = current === id ? null : id;
+      if (next !== current) {
+        setFiltro('');
+        setSearchResults(null);
+      }
+      return next;
+    });
+  }
 
   async function assign(facturaId: number, contratoId: number) {
-    try { await api.post(`/invoices/${facturaId}/assign?contratoId=${contratoId}`); setExpanded(null); reload(); }
-    catch (e: any) { alert('No se pudo asignar: ' + (e.message ?? e)); }
+    console.log(getApiRole());
+    try {
+      await api.post(`/invoices/${facturaId}/assign?contratoId=${contratoId}`);
+      setExpanded(null);
+      setFiltro('');
+      setSearchResults(null);
+      reload();
+    } catch (e: any) {
+      alert('No se pudo asignar: ' + (e.message ?? e));
+    }
   }
 
   return (
@@ -38,7 +162,12 @@ export function FacturasSinAsignar() {
             <div style={s.th}>CUIT emisor</div><div style={s.th}>Razón social</div><div style={s.th}>Importe</div>
             <div style={s.th}>Período</div><div style={s.th}>Comprobante</div><div style={s.th}>Acción</div>
           </div>
-          {data!.map((u) => (
+          {data!.map((u) => {
+            const sugeridas = (u.sugerencias ?? []).map(fromSugerencia);
+            const locales = sugeridas.filter((item: ContratoPick) => matchContrato(item, filtro));
+            const q = filtro.trim();
+            const items = q && searchResults ? searchResults : locales;
+            return (
             <div key={u.id}>
               <div style={{ display: 'grid', gridTemplateColumns: GRID, borderTop: `1px solid ${c.line}`, fontSize: 12.5, alignItems: 'center' }}>
                 <div style={{ padding: '11px 12px' }}>{u.cuit}</div>
@@ -51,30 +180,63 @@ export function FacturasSinAsignar() {
                 </div>
                 <div style={{ padding: '11px 12px' }}>
                   {meta.canEdit ? (
-                    <button style={{ ...s.btn, padding: '6px 10px', fontSize: 12 }} onClick={() => setExpanded(expanded === u.id ? null : u.id)}>Asignar contrato</button>
+                    <button style={{ ...s.btn, padding: '6px 10px', fontSize: 12 }} onClick={() => toggleAssign(u.id)}>Asignar contrato</button>
                   ) : <span style={{ color: c.muted2 }}>Sólo lectura</span>}
                 </div>
               </div>
               {expanded === u.id && (
-                <div style={{ background: c.softBg, borderTop: `1px solid ${c.line}`, padding: '12px 16px', fontSize: 12.5 }}>
-                  <div style={{ color: c.muted, marginBottom: 8 }}>Sugerencias por CUIT / NIS:</div>
+                <div
+                  style={{
+                    background: c.softBg,
+                    borderTop: `1px solid ${c.line}`,
+                    padding: '12px 16px',
+                    fontSize: 12.5
+                  }}
+                >
+                  <div style={{ color: c.muted, marginBottom: 8 }}>
+                    Buscá por NIS, unidad de negocio, responsable, CUIT o razón social del locador.
+                  </div>
+
+                  <input
+                    style={{
+                      ...s.input,
+                      width: 420,
+                      maxWidth: '100%',
+                      marginBottom: 10,
+                      fontSize: 12
+                    }}
+                    placeholder="NIS, unidad de negocio, responsable, CUIT o razón social"
+                    value={filtro}
+                    onChange={(e) => setFiltro(e.target.value)}
+                  />
+
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {u.sugerencias.map((sug: any) => (
-                      <div key={sug.contratoId} onClick={() => assign(u.id, sug.contratoId)} style={{
-                        border: `1px solid ${c.border}`, borderRadius: 4, padding: '8px 12px', background: '#fff', cursor: 'pointer',
-                        display: 'flex', flexDirection: 'column', gap: 3, minWidth: 150,
-                      }}>
-                        <div><span style={{ color: c.muted }}>NIS </span><span style={{ fontWeight: 600 }}>{sug.nis}</span></div>
-                        <div><span style={{ color: c.muted }}>Sucursal </span><span style={{ fontWeight: 600 }}>{sug.sucursal}</span></div>
-                        <div><span style={{ color: c.muted }}>Monto </span><span style={{ fontWeight: 600 }}>{money(sug.monto)}</span></div>
-                      </div>
+                    {searching && q && !searchResults && (
+                      <div style={{ color: c.muted2 }}>Buscando contratos…</div>
+                    )}
+
+                    {items.map((item: ContratoPick) => (
+                      <ContratoPickCard
+                        key={item.id}
+                        item={item}
+                        onPick={() => assign(u.id, item.id)}
+                      />
                     ))}
-                    {u.sugerencias.length === 0 && <div style={{ color: c.muted2 }}>Sin sugerencias automáticas para este CUIT.</div>}
+
+                    {!searching && items.length === 0 && (
+                      <div style={{ color: c.muted2 }}>
+                        {q
+                          ? 'No hay contratos que coincidan con la búsqueda.'
+                          : 'Sin sugerencias automáticas para este CUIT. Escribí para buscar en todos los contratos.'}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
+
             </div>
-          ))}
+            );
+          })}
         </div>
       ))}
     </div>

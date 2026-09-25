@@ -1,7 +1,7 @@
 package com.correoargentino.sga.service;
 
 import com.correoargentino.sga.repo.SgaRepository;
-import com.correoargentino.sga.security.CurrentUserProvider;
+import com.correoargentino.sga.security.*;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Service;
 

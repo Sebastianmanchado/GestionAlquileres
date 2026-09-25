@@ -1,19 +1,25 @@
 package com.correoargentino.sga.service;
 
-import com.correoargentino.sga.repo.SgaRepository;
-import com.correoargentino.sga.security.CurrentUserProvider;
-import com.correoargentino.sga.web.ForbiddenException;
-import com.correoargentino.sga.web.NotFoundException;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.correoargentino.sga.repo.SgaRepository;
+import com.correoargentino.sga.security.CurrentUserProvider;
+import com.correoargentino.sga.web.ForbiddenException;
+import com.correoargentino.sga.web.NotFoundException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class ReconciliationService {
@@ -35,36 +41,125 @@ public class ReconciliationService {
         return repo.query("SELECT DISTINCT periodo FROM conciliacion ORDER BY periodo DESC", new MapSqlParameterSource());
     }
 
+
     public Map<String, Object> list(String periodo) {
-        LocalDate per = periodo == null || periodo.isBlank() ? latestPeriod() : LocalDate.parse(periodo.substring(0, 10));
-        MapSqlParameterSource p = new MapSqlParameterSource("periodo", per);
-        List<Map<String, Object>> rows = repo.query("""
-            SELECT co.id, i.nis, i.denominacion AS denom,
-                   co.importe_esperado AS esperado, co.importe_facturado AS facturado, co.diferencia,
-                   co.estado AS estadoCodigo, c.id AS contratoId,
-                   (SELECT TOP 1 f.numero_comprobante FROM conciliacion_factura cf JOIN factura f ON f.id=cf.factura_id
-                     WHERE cf.conciliacion_id=co.id ORDER BY f.id) AS comprobante
-              FROM conciliacion co
-              JOIN contrato c ON c.id=co.contrato_id
-              JOIN inmueble i ON i.id=c.inmueble_id
-             WHERE co.periodo=:periodo
-             ORDER BY i.nis
-            """, p);
+
+        LocalDate per =
+            periodo == null || periodo.isBlank()
+                ? latestPeriod()
+                : LocalDate.parse(periodo.substring(0, 10));
+
+        MapSqlParameterSource parameters =
+            new MapSqlParameterSource("periodo", per);
+
+        List<Map<String, Object>> rows = repo.query(
+            """
+            SELECT
+                co.id,
+                i.nis,
+                i.denominacion AS denom,
+                co.importe_esperado AS esperado,
+                co.importe_facturado AS facturado,
+                co.diferencia,
+                co.estado AS estadoCodigo,
+                c.id AS contratoId,
+                c.cantidad_facturas AS cantidad_facturas,
+
+                (
+                    SELECT COUNT(*)
+                    FROM factura f
+                    WHERE f.contrato_id = c.id
+                ) AS facturas_existentes,
+
+                (
+                    SELECT
+                        f.id AS id,
+                        f.numero_comprobante AS comprobante
+                    FROM conciliacion_factura cf
+                    INNER JOIN factura f
+                        ON f.id = cf.factura_id
+                    WHERE cf.conciliacion_id = co.id
+                    ORDER BY f.id
+                    FOR JSON PATH
+                ) AS facturasJson
+
+            FROM conciliacion co
+            INNER JOIN contrato c
+                ON c.id = co.contrato_id
+            INNER JOIN inmueble i
+                ON i.id = c.inmueble_id
+            WHERE co.periodo = :periodo
+            ORDER BY i.nis
+            """,
+            parameters
+        );
+
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        for (Map<String, Object> row : rows) {
+
+            Object facturasJsonValue = row.remove("facturasJson");
+
+            String facturasJson =
+                facturasJsonValue == null
+                    ? "[]"
+                    : facturasJsonValue.toString();
+
+            try {
+                List<Map<String, Object>> facturas =
+                    objectMapper.readValue(
+                        facturasJson,
+                        new TypeReference<List<Map<String, Object>>>() {
+                        }
+                    );
+
+                row.put("facturas", facturas);
+
+            } catch (JsonProcessingException e) {
+                throw new IllegalStateException(
+                    "No se pudo convertir la lista de facturas de la conciliación "
+                        + row.get("id"),
+                    e
+                );
+            }
+        }
 
         Map<String, Object> out = new LinkedHashMap<>();
+
         out.put("rows", rows);
         out.put("periodo", per);
         out.put("periodos", periodos());
 
         List<Map<String, Object>> filtros = new ArrayList<>();
-        for (String est : List.of("OK", "OK_CON_DIF", "CON_DIFERENCIA", "SIN_FACTURA")) {
-            long count = rows.stream().filter(r -> est.equals(r.get("estadoCodigo"))).count();
-            Map<String, Object> f = new LinkedHashMap<>();
-            f.put("codigo", est);
-            f.put("count", count);
-            filtros.add(f);
+
+        for (
+            String estado : List.of(
+                "OK",
+                "OK_CON_DIF",
+                "CON_DIFERENCIA",
+                "SIN_FACTURA"
+            )
+        ) {
+            long count = rows.stream()
+                .filter(
+                    row ->
+                        estado.equals(
+                            row.get("estadoCodigo")
+                        )
+                )
+                .count();
+
+            Map<String, Object> filtro =
+                new LinkedHashMap<>();
+
+            filtro.put("codigo", estado);
+            filtro.put("count", count);
+
+            filtros.add(filtro);
         }
+
         out.put("filtros", filtros);
+
         return out;
     }
 
@@ -73,41 +168,68 @@ public class ReconciliationService {
         if (!currentUser.currentRole().canEdit()) {
             throw new ForbiddenException("El rol actual no puede ejecutar la conciliación.");
         }
-        LocalDate per = periodo == null || periodo.isBlank() ? latestPeriod() : LocalDate.parse(periodo.substring(0, 10));
-        MapSqlParameterSource pp = new MapSqlParameterSource("periodo", per);
+        LocalDate per = periodo == null || periodo.isBlank()
+                ? latestPeriod()
+                : LocalDate.parse(periodo.substring(0, 10));
 
         List<Map<String, Object>> contratos = repo.query("""
             SELECT c.id AS contratoId,
-                   (SELECT TOP 1 cv.importe_mensual FROM contrato_valor cv WHERE cv.contrato_id=c.id AND cv.vigencia_hasta IS NULL) AS esperado
-              FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id
-             WHERE e.codigo <> 'RESCINDIDO'
+                c.tolerancia_importe_pct AS tolerancia,
+                (SELECT TOP 1 cv.importe_mensual
+                    FROM contrato_valor cv
+                    WHERE cv.contrato_id = c.id
+                    AND cv.vigencia_hasta IS NULL) AS esperado
+            FROM contrato c
+            JOIN estado_contrato e ON e.id = c.estado_contrato_id
+            WHERE e.codigo <> 'RESCINDIDO'
             """, new MapSqlParameterSource());
 
         int procesadas = 0;
         for (Map<String, Object> ct : contratos) {
             Long contratoId = ((Number) ct.get("contratoId")).longValue();
-            java.math.BigDecimal esperado = (java.math.BigDecimal) ct.get("esperado");
-            if (esperado == null) esperado = java.math.BigDecimal.ZERO;
 
-            MapSqlParameterSource fp = new MapSqlParameterSource().addValue("c", contratoId).addValue("periodo", per);
-            java.math.BigDecimal facturado = repo.jdbc().queryForObject(
-                    "SELECT ISNULL(SUM(importe_total),0) FROM factura WHERE contrato_id=:c AND periodo_facturado=:periodo", fp, java.math.BigDecimal.class);
+            BigDecimal esperado = (BigDecimal) ct.get("esperado");
+            if (esperado == null) esperado = BigDecimal.ZERO;
+
+            BigDecimal toleranciaPct = (BigDecimal) ct.get("tolerancia");
+            if (toleranciaPct == null) toleranciaPct = BigDecimal.ZERO;
+
+            MapSqlParameterSource fp = new MapSqlParameterSource().addValue("c", contratoId);
+
+            BigDecimal facturado = repo.jdbc().queryForObject(
+                    "SELECT ISNULL(SUM(importe_total),0) FROM factura WHERE contrato_id=:c",
+                    fp, BigDecimal.class);
             int cnt = repo.jdbc().queryForObject(
-                    "SELECT COUNT(*) FROM factura WHERE contrato_id=:c AND periodo_facturado=:periodo", fp, Integer.class);
+                    "SELECT COUNT(*) FROM factura WHERE contrato_id=:c",
+                    fp, Integer.class);
+
+            BigDecimal margen = esperado.abs()
+                    .multiply(toleranciaPct)
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+            BigDecimal desvio = facturado.subtract(esperado).abs();
 
             String estado;
-            if (cnt == 0) estado = "SIN_FACTURA";
-            else if (facturado.compareTo(esperado) == 0) estado = "OK";
-            else if (facturado.subtract(esperado).abs().compareTo(esperado.multiply(new java.math.BigDecimal("0.03"))) <= 0) estado = "OK_CON_DIF";
-            else estado = "CON_DIFERENCIA";
+            if (cnt == 0)                                  estado = "SIN_FACTURA";
+            else if (facturado.compareTo(esperado) == 0)   estado = "OK";
+            else if (desvio.compareTo(margen) <= 0)        estado = "OK_CON_DIF";
+            else                                           estado = "CON_DIFERENCIA";
 
             MapSqlParameterSource up = new MapSqlParameterSource()
-                    .addValue("c", contratoId).addValue("periodo", per)
-                    .addValue("esperado", esperado).addValue("facturado", facturado).addValue("estado", estado);
+                    .addValue("c", contratoId)
+                    .addValue("esperado", esperado)
+                    .addValue("facturado", facturado)
+                    .addValue("estado", estado)
+                    .addValue("periodo", per);
+
             int updated = repo.jdbc().update("""
-                UPDATE conciliacion SET importe_esperado=:esperado, importe_facturado=:facturado, estado=:estado
-                 WHERE contrato_id=:c AND periodo=:periodo
+                UPDATE conciliacion
+                SET importe_esperado  = :esperado,
+                    importe_facturado = :facturado,
+                    estado            = :estado
+                WHERE contrato_id = :c
                 """, up);
+
             if (updated == 0) {
                 repo.jdbc().update("""
                     INSERT INTO conciliacion (contrato_id, periodo, importe_esperado, importe_facturado, estado)
@@ -116,8 +238,45 @@ public class ReconciliationService {
             }
             procesadas++;
         }
-        audit.log("conciliacion", per.toString(), "EJECUTAR", "Ejecutó la conciliación del período " + per, "—", null, null);
+
+        audit.log("conciliacion", per.toString(), "EJECUTAR",
+                "Ejecutó la conciliación del período " + per, "—", null, null);
         return procesadas;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> run2(String periodo) {
+
+        if (!currentUser.currentRole().canEdit()) {
+            throw new ForbiddenException(
+                "El rol actual no puede ejecutar la conciliación."
+            );
+        }
+
+        LocalDate per = periodo == null || periodo.isBlank()
+            ? latestPeriod()
+            : LocalDate.parse(periodo.substring(0, 10));
+
+        return repo.query(
+            """
+            SELECT
+                c.id,
+                c.contrato_id AS contratoId,
+                c.periodo,
+                c.importe_esperado AS esperado,
+                c.importe_facturado AS facturado,
+                c.diferencia,
+                c.estado,
+                c.comentario,
+                c.revisada_por AS revisadaPor,
+                c.revisada_en AS revisadaEn
+            FROM conciliacion c
+            WHERE c.periodo = :periodo
+            ORDER BY c.contrato_id
+            """,
+            new MapSqlParameterSource()
+                .addValue("periodo", per)
+        );
     }
 
     public Map<String, Object> detail(long id) {

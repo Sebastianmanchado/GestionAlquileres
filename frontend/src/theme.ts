@@ -56,6 +56,46 @@ export const s = {
     padding: '10px 12px', fontSize: 11, fontWeight: 700, color: c.muted,
     textTransform: 'uppercase', letterSpacing: '.3px',
   } as CSSProperties,
+
+  // Modal de error
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0, 0, 0, 0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  } as CSSProperties,
+
+  modal: {
+    width: 'min(420px, 90vw)',
+    background: '#fff',
+    borderRadius: 4,
+    border: `1px solid ${c.border}`,
+    padding: 20,
+    boxShadow: '0 8px 30px rgba(0, 0, 0, 0.18)',
+  } as CSSProperties,
+
+  modalTitle: {
+    margin: '0 0 10px',
+    fontSize: 16,
+    fontWeight: 700,
+    color: c.text,
+  } as CSSProperties,
+
+  modalMessage: {
+    margin: '0 0 20px',
+    fontSize: 13,
+    lineHeight: 1.5,
+    color: c.text,
+    whiteSpace: 'pre-wrap',
+  } as CSSProperties,
+
+  modalActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+  } as CSSProperties,
 };
 
 /** Colores semánticos para las badges de estado. */
