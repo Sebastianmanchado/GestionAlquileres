@@ -1,6 +1,7 @@
 package com.correoargentino.sga.web;
 
 import com.correoargentino.sga.service.ReconciliationService;
+import com.correoargentino.sga.service.SapAsientoService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -11,9 +12,11 @@ import java.util.Map;
 public class ReconciliationController {
 
     private final ReconciliationService service;
+    private final SapAsientoService sap;
 
-    public ReconciliationController(ReconciliationService service) {
+    public ReconciliationController(ReconciliationService service, SapAsientoService sap) {
         this.service = service;
+        this.sap = sap;
     }
 
     @GetMapping
@@ -24,6 +27,18 @@ public class ReconciliationController {
     @GetMapping("/{id}")
     public Map<String, Object> detail(@PathVariable long id) {
         return service.detail(id);
+    }
+
+    @PostMapping("/sap")
+    public Map<String, Object> enviarSap(@RequestBody Map<String, Object> body) {
+        Object raw = body.get("ids");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            throw new IllegalArgumentException("Indicá al menos una conciliación.");
+        }
+        List<Long> ids = list.stream()
+                .map(value -> Long.parseLong(value.toString()))
+                .toList();
+        return Map.of("resultados", sap.enviar(ids));
     }
 
     @PostMapping("/run")

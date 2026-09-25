@@ -104,6 +104,16 @@ public class RpaService {
             comprobante.getFechaEmision()
         );
 
+        body.put("puntoVenta", comprobante.getPuntoVenta());
+        body.put("tipo", comprobante.getTipo());
+        body.put("moneda", comprobante.getMoneda());
+
+        FacturaRequest.DatosFiscales fiscales = request.getDatosFiscales();
+        if (fiscales != null) {
+            body.put("cae", fiscales.getCae());
+            body.put("fechaVencimientoCae", fiscales.getFechaVencimientoCae());
+        }
+
         return invoiceService.create(body);
     }
 }

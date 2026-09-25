@@ -103,6 +103,10 @@ function General({ d, direccion }: { d: Detail; direccion: string }) {
         <Field label="Razón social" value={d.locadorRazon} />
         <Field label="CUIT" value={d.locadorCuit} />
         <Field label="Acreedor SAP" value={d.acreedorSap ?? '—'} />
+        <Field label="CeCo SAP" value={d.cecoSap ?? '—'} />
+        <Field label="División SAP" value={d.divisionSap ?? '—'} />
+        <Field label="Cuenta de gasto" value={d.cuentaGasto ?? '—'} />
+        <Field label="Indicador de impuestos" value={d.indicadorImpuesto ?? '—'} />
         <Field label="Contacto" value={d.locadorEmail ?? '—'} />
         <Field label="Teléfono contacto" value={d.locadorTelefono ?? '—'} />
       </Panel>
