@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { useApp } from '../context';
@@ -60,7 +60,7 @@ export function DetalleContrato({ id }: { id: number }) {
       </div>
 
       {tab === 'general' && <General d={d} direccion={direccion} />}
-      {tab === 'historial' && <Historial d={d} canEdit={meta.canEdit} />}
+      {tab === 'historial' && <Historial d={d} canEdit={meta.canEdit} onSaved={reload} />}
       {tab === 'facturas' && <Facturas d={d} />}
       {tab === 'cambios' && <Cambios d={d} />}
     </div>
@@ -82,6 +82,14 @@ function Field({ label, value }: { label: string; value: ReactNode }) {
       <span style={{ fontWeight: 600, textAlign: 'right' }}>{value}</span>
     </div>
   );
+}
+
+function textoProximoAjuste(p: { fecha?: string; estado?: string } | null | undefined): string {
+  if (!p?.fecha) return '—';
+  const fecha = dateAr(p.fecha);
+  if (p.estado === 'ESPERANDO_INDICE') return `${fecha} · esperando la publicación del índice`;
+  if (p.estado === 'PENDIENTE') return `${fecha} · se registra en la próxima corrida automática`;
+  return fecha;
 }
 
 function General({ d, direccion }: { d: Detail; direccion: string }) {
@@ -116,6 +124,7 @@ function General({ d, direccion }: { d: Detail; direccion: string }) {
         <Field label="Inicio" value={dateAr(d.inicio)} />
         <Field label="Vencimiento" value={dateAr(d.vencimiento)} />
         <Field label="Índice de ajuste" value={d.indiceCodigo ? `${d.indiceCodigo} · ${(d.periodicidad ?? '').toLowerCase()}` : '—'} />
+        <Field label="Próximo ajuste" value={textoProximoAjuste(d.proximoAjuste)} />
         <Field label="Tolerancia de diferencia permitida" value={d.tolerancia != null ? `±${Number(d.tolerancia)}%` : '—'} />
       </Panel>
       <Panel title="Garantías">
@@ -128,12 +137,62 @@ function General({ d, direccion }: { d: Detail; direccion: string }) {
   );
 }
 
-function Historial({ d, canEdit }: { d: Detail; canEdit: boolean }) {
+function Historial({ d, canEdit, onSaved }: { d: Detail; canEdit: boolean; onSaved: () => void }) {
   const grid = '120px 120px 150px 170px 140px';
+  const [open, setOpen] = useState(false);
+  const [indices, setIndices] = useState<{ id: number; codigo: string; nombre: string }[]>([]);
+  const [origen, setOrigen] = useState<'AJUSTE_INDICE' | 'ACUERDO'>('AJUSTE_INDICE');
+  const [indiceId, setIndiceId] = useState('');
+  const [coeficiente, setCoeficiente] = useState('');
+  const [importe, setImporte] = useState('');
+  const [desde, setDesde] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    api.get<{ indices: { id: number; codigo: string; nombre: string }[] }>('/catalogs')
+      .then((cat) => {
+        setIndices(cat.indices ?? []);
+        setIndiceId((current) => current || (d.indiceId != null ? String(d.indiceId) : ''));
+      })
+      .catch(() => {});
+  }, [open, d.indiceId]);
+
+  function abrir() {
+    setOrigen('AJUSTE_INDICE');
+    setIndiceId(d.indiceId != null ? String(d.indiceId) : '');
+    setCoeficiente('');
+    setImporte('');
+    setDesde('');
+    setError('');
+    setOpen(true);
+  }
+
+  async function guardar() {
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/contracts/${d.id}/ajustes`, {
+        origen,
+        importe: origen === 'ACUERDO' ? importe : null,
+        desde,
+        indiceId: origen === 'AJUSTE_INDICE' ? indiceId : null,
+        coeficiente: origen === 'AJUSTE_INDICE' ? coeficiente : null,
+      });
+      setOpen(false);
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message ?? 'No se pudo registrar el ajuste.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-        {canEdit && <button style={s.btnPrimary}>+ Registrar ajuste</button>}
+        {canEdit && <button style={s.btnPrimary} onClick={abrir}>+ Registrar ajuste</button>}
       </div>
       <div style={{ ...s.panel, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: grid, background: c.headerBg }}>
@@ -149,6 +208,53 @@ function Historial({ d, canEdit }: { d: Detail; canEdit: boolean }) {
           </div>
         ))}
       </div>
+
+      {open && (
+        <div style={s.modalOverlay} onClick={() => !saving && setOpen(false)}>
+          <div style={s.modal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={s.modalTitle}>Registrar ajuste</h2>
+            <div style={{ display: 'grid', gap: 12 }}>
+              <label>
+                <span style={s.label}>Origen</span>
+                <select style={{ ...s.input }} value={origen} onChange={(e) => setOrigen(e.target.value as 'AJUSTE_INDICE' | 'ACUERDO')}>
+                  <option value="AJUSTE_INDICE">Ajuste por índice</option>
+                  <option value="ACUERDO">Acuerdo</option>
+                </select>
+              </label>
+              {origen === 'AJUSTE_INDICE' && (
+                <>
+                  <label>
+                    <span style={s.label}>Índice</span>
+                    <select style={{ ...s.input }} value={indiceId} onChange={(e) => setIndiceId(e.target.value)}>
+                      <option value="">Seleccionar índice</option>
+                      {indices.map((ix) => <option key={ix.id} value={ix.id}>{ix.codigo} · {ix.nombre}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span style={s.label}>Coeficiente</span>
+                    <input style={s.input} value={coeficiente} onChange={(e) => setCoeficiente(e.target.value)} placeholder="1.047" />
+                  </label>
+                </>
+              )}
+              {origen === 'ACUERDO' && (
+                <label>
+                  <span style={s.label}>Nuevo importe mensual</span>
+                  <input style={s.input} value={importe} onChange={(e) => setImporte(e.target.value)} placeholder="850000" />
+                </label>
+              )}
+              <label>
+                <span style={s.label}>Vigente desde</span>
+                <input style={s.input} type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+              </label>
+              {error && <div style={{ fontSize: 12.5, color: c.danger }}>{error}</div>}
+            </div>
+            <div style={{ ...s.modalActions, marginTop: 18, gap: 8 }}>
+              <button style={s.btn} disabled={saving} onClick={() => setOpen(false)}>Cancelar</button>
+              <button style={s.btnPrimary} disabled={saving} onClick={guardar}>{saving ? 'Guardando…' : 'Registrar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -29,6 +29,13 @@ sga:
     user: ${SGA_SAP_USER:}
     password: ${SGA_SAP_PASSWORD:}
     soap-action: ${SGA_SAP_SOAP_ACTION:}
+  ajustes:
+    enabled: ${SGA_AJUSTES_AUTO:true}
+    cron: "${SGA_AJUSTES_CRON:0 30 6 * * *}"
+    zone: ${SGA_AJUSTES_ZONE:America/Argentina/Buenos_Aires}
+    ipc-series-url: https://apis.datos.gob.ar/series/api/series/
+    # v2.0 de Estadísticas BCRA responde 410. La serie vigente del ICL (variable 40) está en v4.0.
+    icl-base-url: https://api.bcra.gob.ar/estadisticas/v4.0/monetarias/
 
 springdoc:
   swagger-ui:

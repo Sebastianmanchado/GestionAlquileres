@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.correoargentino.sga.repo.SgaRepository;
+import com.correoargentino.sga.service.AjusteAutomaticoService;
 import com.correoargentino.sga.service.ContractService;
 
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
@@ -24,12 +25,20 @@ public class IndiceAjusteController {
 
     private final SgaRepository repo;
     private final ContractService service;
+    private final AjusteAutomaticoService ajustes;
 
     public IndiceAjusteController(
             SgaRepository repo,
-            ContractService service) {
+            ContractService service,
+            AjusteAutomaticoService ajustes) {
         this.repo = repo;
         this.service = service;
+        this.ajustes = ajustes;
+    }
+
+    @PostMapping("/sincronizar-y-aplicar")
+    public Map<String, Object> sincronizarYAplicar() {
+        return ajustes.ejecutarManual();
     }
 
     @GetMapping

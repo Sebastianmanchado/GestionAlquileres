@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
@@ -603,6 +604,169 @@ public class ContractService {
                 new MapSqlParameterSource(), Integer.class);
         int next = (max == null ? 1000 : max) + 1;
         return "C-" + String.format("%06d", next);
+    }
+
+    @Transactional
+    public void registrarAjuste(long id, Map<String, Object> body) throws BadRequestException {
+        requireEdit();
+        Map<String, Object> contrato = repo.getContractDetail(id);
+        if (contrato == null) throw new NotFoundException("Contrato no encontrado");
+
+        String origen = str(body.get("origen"));
+        if (!"AJUSTE_INDICE".equals(origen) && !"ACUERDO".equals(origen)) {
+            throw new BadRequestException("El origen debe ser ajuste por índice o acuerdo.");
+        }
+
+        BigDecimal importe = null;
+        if ("ACUERDO".equals(origen)) {
+            importe = plainDecimal(body.get("importe"));
+            if (importe == null || importe.signum() <= 0) {
+                throw new BadRequestException("El nuevo importe mensual debe ser mayor a cero.");
+            }
+        }
+
+        if (body.get("desde") == null || str(body.get("desde")).isBlank()) {
+            throw new BadRequestException("La fecha de inicio del ajuste es obligatoria.");
+        }
+        LocalDate desde;
+        try {
+            desde = LocalDate.parse(str(body.get("desde")).substring(0, 10));
+        } catch (RuntimeException e) {
+            throw new BadRequestException("La fecha de inicio del ajuste no es válida.");
+        }
+
+        Integer indiceId = null;
+        BigDecimal coeficiente = null;
+        if ("AJUSTE_INDICE".equals(origen)) {
+            indiceId = asInt(body.get("indiceId"));
+            if (indiceId == null) throw new BadRequestException("Seleccioná el índice del ajuste.");
+            Integer existe = repo.jdbc().queryForObject(
+                    "SELECT COUNT(*) FROM indice_ajuste WHERE id = :id",
+                    new MapSqlParameterSource("id", indiceId),
+                    Integer.class);
+            if (existe == null || existe == 0) throw new BadRequestException("El índice seleccionado no existe.");
+            coeficiente = plainDecimal(body.get("coeficiente"));
+            if (coeficiente == null || coeficiente.signum() <= 0) {
+                throw new BadRequestException("El coeficiente debe ser mayor a cero.");
+            }
+        }
+
+        Map<String, Object> vigente = repo.queryOne("""
+            SELECT TOP 1 id, vigencia_desde AS desde, importe_mensual AS importe
+              FROM contrato_valor
+             WHERE contrato_id = :id AND vigencia_hasta IS NULL
+             ORDER BY vigencia_desde DESC
+            """, new MapSqlParameterSource("id", id));
+
+        if ("AJUSTE_INDICE".equals(origen)) {
+            BigDecimal actual = vigente == null ? null : plainDecimal(vigente.get("importe"));
+            if (actual == null || actual.signum() <= 0) {
+                throw new BadRequestException("El contrato no tiene un importe vigente para aplicar el índice.");
+            }
+            importe = actual.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
+        }
+
+        String importeAnterior = insertarValorAjuste(id, desde, importe, origen, indiceId, coeficiente);
+
+        audit.log(
+                "contrato_valor",
+                String.valueOf(id),
+                "AJUSTE",
+                "Registró ajuste de importe mensual",
+                String.valueOf(contrato.get("nis")),
+                importeAnterior,
+                importe.toPlainString()
+        );
+    }
+
+    @Transactional
+    public boolean aplicarAjusteIndiceSistema(
+            long contratoId,
+            LocalDate desde,
+            BigDecimal importe,
+            int indiceId,
+            BigDecimal coeficiente,
+            String nis,
+            String importeAnterior) {
+        Integer ya = repo.jdbc().queryForObject("""
+                SELECT COUNT(*)
+                  FROM contrato_valor
+                 WHERE contrato_id = :id AND vigencia_desde = :desde
+                """, new MapSqlParameterSource()
+                .addValue("id", contratoId)
+                .addValue("desde", desde), Integer.class);
+        if (ya != null && ya > 0) return false;
+
+        try {
+            insertarValorAjuste(contratoId, desde, importe, "AJUSTE_INDICE", indiceId, coeficiente);
+        } catch (BadRequestException e) {
+            return false;
+        }
+        audit.logAs(
+                "rpa",
+                "contrato_valor",
+                String.valueOf(contratoId),
+                "AJUSTE",
+                "Registró ajuste automático por índice",
+                nis,
+                importeAnterior,
+                importe.toPlainString()
+        );
+        return true;
+    }
+
+    private String insertarValorAjuste(
+            long contratoId,
+            LocalDate desde,
+            BigDecimal importe,
+            String origen,
+            Integer indiceId,
+            BigDecimal coeficiente) throws BadRequestException {
+        Map<String, Object> vigente = repo.queryOne("""
+            SELECT TOP 1 id, vigencia_desde AS desde, importe_mensual AS importe
+              FROM contrato_valor
+             WHERE contrato_id = :id AND vigencia_hasta IS NULL
+             ORDER BY vigencia_desde DESC
+            """, new MapSqlParameterSource("id", contratoId));
+
+        String importeAnterior = null;
+        if (vigente != null && vigente.get("desde") != null) {
+            LocalDate desdeActual = AjusteIndiceCalculo.toLocalDate(vigente.get("desde"));
+            if (desdeActual != null && !desde.isAfter(desdeActual)) {
+                throw new BadRequestException("La fecha del ajuste debe ser posterior al valor vigente (" + desdeActual + ").");
+            }
+            if (vigente.get("importe") != null) importeAnterior = vigente.get("importe").toString();
+            repo.jdbc().update("""
+                UPDATE contrato_valor
+                   SET vigencia_hasta = :hasta
+                 WHERE id = :valorId
+                """, new MapSqlParameterSource()
+                    .addValue("hasta", desde.minusDays(1))
+                    .addValue("valorId", vigente.get("id")));
+        }
+
+        repo.jdbc().update("""
+            INSERT INTO contrato_valor
+                (contrato_id, vigencia_desde, vigencia_hasta, importe_mensual, origen, indice_id, coeficiente_aplicado)
+            VALUES
+                (:contratoId, :desde, NULL, :importe, :origen, :indiceId, :coeficiente)
+            """, new MapSqlParameterSource()
+                .addValue("contratoId", contratoId)
+                .addValue("desde", desde)
+                .addValue("importe", importe)
+                .addValue("origen", origen)
+                .addValue("indiceId", indiceId)
+                .addValue("coeficiente", coeficiente));
+        return importeAnterior;
+    }
+
+    private static BigDecimal plainDecimal(Object o) {
+        if (o == null) return null;
+        if (o instanceof BigDecimal b) return b;
+        if (o instanceof Number n) return new BigDecimal(n.toString());
+        String s = o.toString().trim().replace(",", ".");
+        if (s.isEmpty()) return null;
+        try { return new BigDecimal(s); } catch (NumberFormatException e) { return null; }
     }
 
     private int estadoFromVencimiento(LocalDate venc) {
