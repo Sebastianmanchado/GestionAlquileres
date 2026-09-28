@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.correoargentino.sga.service.NotificationService;
 
-import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import org.springframework.web.bind.annotation.RequestBody;
 
 @RestController
 @RequestMapping("/api/notifications")
