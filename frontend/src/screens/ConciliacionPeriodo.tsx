@@ -7,7 +7,11 @@ import { money, periodo as fmtPeriodo, estadoConciliacion } from '../format';
 import { useAsync } from '../hooks';
 import { Loading, ErrorBox } from './Dashboard';
 
-const GRID = '30px 80px 1fr 130px 130px 80px 110px 140px 150px';
+const GRID = '30px 80px 1fr 130px 130px 80px 110px 140px 210px';
+
+function estaEnviado(row: { enviadoSap?: boolean | number }): boolean {
+  return row.enviadoSap === true || row.enviadoSap === 1;
+}
 
 export function ConciliacionPeriodo() {
   const { navigate, meta, role } = useApp();
@@ -100,24 +104,25 @@ export function ConciliacionPeriodo() {
     switch (sendMode) {
       case 'selected':
         return data.rows.filter((r: any) =>
-          selectedIds.includes(Number(r.id))
+          selectedIds.includes(Number(r.id)) && !estaEnviado(r)
         );
 
       case 'all':
         return data.rows.filter(
           (r: any) =>
-            r.estadoCodigo === 'OK' ||
-            r.estadoCodigo === 'OK_CON_DIF'
+            (r.estadoCodigo === 'OK' ||
+            r.estadoCodigo === 'OK_CON_DIF') &&
+            !estaEnviado(r)
         );
 
       case 'ok':
         return data.rows.filter(
-          (r: any) => r.estadoCodigo === 'OK'
+          (r: any) => r.estadoCodigo === 'OK' && !estaEnviado(r)
         );
 
       case 'okDiff':
         return data.rows.filter(
-          (r: any) => r.estadoCodigo === 'OK_CON_DIF'
+          (r: any) => r.estadoCodigo === 'OK_CON_DIF' && !estaEnviado(r)
         );
 
       default:
@@ -420,8 +425,10 @@ export function ConciliacionPeriodo() {
             r.estadoCodigo
           );
 
+          const enviado = estaEnviado(r);
+
           const puedeEnviar =
-            r.estadoCodigo === 'OK' || r.estadoCodigo === 'OK_CON_DIF';
+            (r.estadoCodigo === 'OK' || r.estadoCodigo === 'OK_CON_DIF') && !enviado;
 
           const rowId = Number(r.id);
 
@@ -586,11 +593,10 @@ export function ConciliacionPeriodo() {
               {/* ESTADO */}
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '65% 35%',
+                  display: 'flex',
+                  flexWrap: 'wrap',
                   padding: '11px 12px',
                   alignItems: 'center',
-                  justifyContent: "center",
                   gap: 8,
                 }}
               >
@@ -621,6 +627,9 @@ export function ConciliacionPeriodo() {
                   >
                     Enviar
                   </button>
+                )}
+                {enviado && (
+                  <Badge label="Enviado a SAP" tone="green" />
                 )}
               </div>
             </div>
@@ -873,7 +882,7 @@ export function ConciliacionPeriodo() {
                     <div style={{ fontWeight: 700 }}>
                       NIS {r.nis ?? '—'}
                       {r.comprobante ? ` · ${r.comprobante}` : ''}
-                      {r.ok ? ` · asiento ${r.asiento}` : ''}
+                      {r.ok && r.asiento != null ? ` · asiento ${r.asiento}` : ''}
                     </div>
                     {!r.ok && (
                       <div style={{ color: c.danger, marginTop: 2 }}>{r.error}</div>

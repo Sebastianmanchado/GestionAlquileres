@@ -8,8 +8,9 @@ import java.time.LocalDate;
 import java.util.NavigableMap;
 
 /**
- * Cálculo puro del ajuste por índice. IPC usa el nivel del mes anterior a cada
- * fecha. ICL usa el nivel del día, o el último publicado hasta {@code diasAtras}.
+ * Cálculo puro del ajuste por índice. IPC compone las variaciones mensuales
+ * (en porcentaje) de todos los meses del período. ICL usa el nivel del día,
+ * o el último publicado hasta {@code diasAtras}.
  */
 public final class AjusteIndiceCalculo {
 
@@ -28,9 +29,25 @@ public final class AjusteIndiceCalculo {
         };
     }
 
-    /** Primer día del mes anterior a la fecha de ajuste. */
-    public static LocalDate mesIndiceIpc(LocalDate fechaAjuste) {
-        return fechaAjuste.minusMonths(1).withDayOfMonth(1);
+    /**
+     * Factor IPC del período. Toma las variaciones mensuales en porcentaje de los
+     * {@code meses} corridos desde el mes de {@code base}. Un trimestral usa los
+     * tres meses; si falta alguno, no hay coeficiente.
+     */
+    public static BigDecimal coeficientePorVariacionMensual(
+            NavigableMap<LocalDate, BigDecimal> variaciones,
+            LocalDate base,
+            int meses) {
+        if (variaciones == null || base == null || meses <= 0) return null;
+        BigDecimal factor = BigDecimal.ONE;
+        LocalDate mes = base.withDayOfMonth(1);
+        for (int i = 0; i < meses; i++) {
+            BigDecimal variacion = variaciones.get(mes);
+            if (variacion == null) return null;
+            factor = factor.multiply(BigDecimal.ONE.add(variacion.movePointLeft(2)));
+            mes = mes.plusMonths(1);
+        }
+        return factor.setScale(4, RoundingMode.HALF_UP);
     }
 
     public static BigDecimal coeficiente(BigDecimal nivelNuevo, BigDecimal nivelBase) {

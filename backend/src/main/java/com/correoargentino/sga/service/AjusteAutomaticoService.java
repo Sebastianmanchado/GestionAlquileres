@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +28,7 @@ public class AjusteAutomaticoService {
     private final ContractService contracts;
     private final IndiceSyncService sync;
     private final CurrentUserProvider currentUser;
+    private final Object corrida = new Object();
 
     public AjusteAutomaticoService(
             SgaRepository repo,
@@ -47,6 +49,27 @@ public class AjusteAutomaticoService {
     }
 
     public Map<String, Object> ejecutar() {
+        synchronized (corrida) {
+            return ejecutarCorrida();
+        }
+    }
+
+    /**
+     * Si el IPC no se sincronizó hoy, lo busca y aplica los ajustes pendientes.
+     * Si ya está al día, no hace nada: el cron de las 6:30 igual fuerza la corrida.
+     */
+    public void asegurarIndiceDelDia() {
+        synchronized (corrida) {
+            if (sync.ipcSincronizadoHoy()) {
+                log.info("IPC ya actualizado hoy ({}); no se vuelve a buscar.", sync.ipcActualizadoEnIso());
+                return;
+            }
+            log.info("La última actualización del IPC no es de hoy; se busca el índice y se aplican los ajustes.");
+            ejecutarCorrida();
+        }
+    }
+
+    private Map<String, Object> ejecutarCorrida() {
         Map<String, Object> out = new LinkedHashMap<>();
         try {
             out.putAll(sync.sincronizar());
@@ -55,6 +78,7 @@ public class AjusteAutomaticoService {
             out.put("ipc", 0);
             out.put("icl", 0);
             out.put("errores", List.of(e.getMessage() == null ? "error al sincronizar" : e.getMessage()));
+            out.put("ipcActualizadoEn", sync.ipcActualizadoEnIso());
         }
         Map<String, Object> aplicados = aplicarPendientes();
         out.putAll(aplicados);
@@ -202,9 +226,8 @@ public class AjusteAutomaticoService {
                     AjusteIndiceCalculo.nivelEnFechaOAnterior(niveles, proxima, AjusteIndiceCalculo.DIAS_TOLERANCIA_ICL),
                     AjusteIndiceCalculo.nivelEnFechaOAnterior(niveles, base, AjusteIndiceCalculo.DIAS_TOLERANCIA_ICL));
         }
-        return AjusteIndiceCalculo.coeficiente(
-                niveles.get(AjusteIndiceCalculo.mesIndiceIpc(proxima)),
-                niveles.get(AjusteIndiceCalculo.mesIndiceIpc(base)));
+        int meses = (int) ChronoUnit.MONTHS.between(base.withDayOfMonth(1), proxima.withDayOfMonth(1));
+        return AjusteIndiceCalculo.coeficientePorVariacionMensual(niveles, base, meses);
     }
 
     private NavigableMap<LocalDate, BigDecimal> niveles(String codigo) {
