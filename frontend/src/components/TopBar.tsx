@@ -80,16 +80,6 @@ export function TopBar() {
     }}>
       <div style={{ fontSize: 12, color: c.muted, flex: 1 }}>{BREADCRUMBS[route.screen]}</div>
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6, background: c.fieldBg,
-        border: `1px solid ${c.border}`, borderRadius: 4, padding: '6px 10px', width: 280,
-      }}>
-        <span style={{ width: 12, height: 12, border: '1.5px solid #8a8985', borderRadius: '50%', flex: 'none' }} />
-        <input placeholder="Buscar por NIS o unidad de negocio..." style={{
-          border: 'none', background: 'transparent', outline: 'none', fontSize: 12.5, width: '100%', color: c.text,
-        }} />
-      </div>
-
       <div style={{ position: 'relative' }}>
         <div onClick={() => setNotifOpen((v) => !v)} style={{
           width: 32, height: 32, border: `1px solid ${c.border}`, borderRadius: 4, display: 'flex',

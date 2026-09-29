@@ -15,9 +15,11 @@ import java.util.Map;
 public class DashboardService {
 
     private final SgaRepository repo;
+    private final IndiceSyncService indices;
 
-    public DashboardService(SgaRepository repo) {
+    public DashboardService(SgaRepository repo, IndiceSyncService indices) {
         this.repo = repo;
+        this.indices = indices;
     }
 
     public Map<String, Object> dashboard() {
@@ -56,7 +58,7 @@ public class DashboardService {
         kpi.put("facturasSinAsignar", sinAsignar);
         kpi.put("montoMensual", monto);
         List<Map<String, Object>> ipc = repo.query("""
-                SELECT TOP 2 iv.periodo, iv.valor
+                SELECT TOP 1 iv.periodo, iv.valor
                   FROM indice_valor iv
                   JOIN indice_ajuste ia ON ia.id = iv.indice_id
                  WHERE ia.codigo = N'IPC' AND iv.origen = N'API'
@@ -64,19 +66,18 @@ public class DashboardService {
                 """, empty);
         BigDecimal variacionIpc = null;
         Object periodoIpc = null;
-        if (ipc.size() >= 2) {
-            BigDecimal actual = ipc.get(0).get("valor") instanceof BigDecimal v ? v : null;
-            BigDecimal anterior = ipc.get(1).get("valor") instanceof BigDecimal v ? v : null;
-            if (actual != null && anterior != null && anterior.signum() > 0) {
-                variacionIpc = actual.divide(anterior, 8, RoundingMode.HALF_UP)
-                        .subtract(BigDecimal.ONE)
-                        .movePointRight(2)
-                        .setScale(1, RoundingMode.HALF_UP);
+        if (!ipc.isEmpty()) {
+            Object raw = ipc.get(0).get("valor");
+            BigDecimal actual = raw instanceof BigDecimal v ? v
+                    : raw instanceof Number n ? new BigDecimal(n.toString()) : null;
+            if (actual != null) {
+                variacionIpc = actual.setScale(1, RoundingMode.HALF_UP);
                 periodoIpc = ipc.get(0).get("periodo");
             }
         }
         kpi.put("ultimoIpc", variacionIpc);
         kpi.put("ultimoIpcPeriodo", periodoIpc);
+        kpi.put("ipcActualizadoEn", indices.ipcActualizadoEnIso());
         out.put("kpi", kpi);
 
         // Evolución del gasto mensual (real, según facturas por período)

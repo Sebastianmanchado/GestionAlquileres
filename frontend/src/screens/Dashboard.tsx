@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { api } from '../api';
 import { useApp } from '../context';
 import { useAsync } from '../hooks';
@@ -10,27 +11,46 @@ type Dash = {
     contratosProximos: number; vencen90: number; carteraPct: number; concConDiferencia: number; concProcesadas: number;
     periodo: string; facturasSinAsignar: number; montoMensual: number;
     ultimoIpc: number | null; ultimoIpcPeriodo: string | null;
+    ipcActualizadoEn: string | null;
   };
   chart: { periodo: string; total: number }[];
   attention: string[];
 };
 
 export function Dashboard() {
-  const { role } = useApp();
-  const { data, loading, error } = useAsync<Dash>(() => api.get('/dashboard'), [role]);
+  const { role, meta } = useApp();
+  const { data, loading, error, reload } = useAsync<Dash>(() => api.get('/dashboard'), [role]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
 
-  if (loading) return <Loading />;
+  async function actualizarIpc() {
+    setRefreshing(true);
+    setRefreshError('');
+    try {
+      const res = await api.post<{ errores?: string[] }>('/indices/sincronizar-y-aplicar');
+      if (res.errores && res.errores.length > 0) {
+        setRefreshError(res.errores.join(' '));
+      }
+      reload();
+    } catch (e: any) {
+      setRefreshError(e.message ?? 'No se pudo actualizar el IPC.');
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox msg={error} />;
 
   const k = data.kpi;
-  const kpis = [
+  const kpis: { label: string; value: string; sub: string; ipc?: boolean }[] = [
     { label: 'Contratos totales', value: `${k.contratosTotales}`, sub: 'en cartera' },
     { label: 'Contratos vigentes', value: `${k.contratosVigentes}`, sub: 'en estado vigente' },
     { label: 'Vencen en próx. 90 días', value: `${k.vencen90}`, sub: `${k.carteraPct}% de la cartera` },
     { label: 'Conciliaciones del mes con diferencia', value: `${k.concConDiferencia}`, sub: `de ${k.concProcesadas} procesadas` },
     { label: 'Facturas pendientes de matchear', value: `${k.facturasSinAsignar}`, sub: 'bandeja sin asignar' },
     { label: 'Monto mensual comprometido', value: money(k.montoMensual), sub: 'período actual' },
-    { label: 'Último IPC', value: ipcPct(k.ultimoIpc), sub: k.ultimoIpcPeriodo ? periodo(k.ultimoIpcPeriodo) : 'variación mensual' },
+    { label: 'Último IPC', value: ipcPct(k.ultimoIpc), sub: k.ultimoIpcPeriodo ? periodo(k.ultimoIpcPeriodo) : 'variación mensual', ipc: true },
   ];
 
   const maxTotal = Math.max(1, ...data.chart.map((b) => Number(b.total)));
@@ -43,9 +63,27 @@ export function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
           {kpis.map((kp, i) => (
             <div key={i} style={{ ...s.panel, padding: 14 }}>
-              <div style={{ fontSize: 11, color: c.muted, marginBottom: 8 }}>{kp.label}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: c.muted }}>{kp.label}</div>
+                {kp.ipc && meta.canEdit && (
+                  <button
+                    type="button"
+                    onClick={actualizarIpc}
+                    disabled={refreshing}
+                    style={{ ...s.btn, padding: '4px 8px', fontSize: 11, opacity: refreshing ? 0.6 : 1 }}
+                  >
+                    {refreshing ? 'Actualizando…' : 'Actualizar'}
+                  </button>
+                )}
+              </div>
               <div style={{ fontSize: 22, fontWeight: 700 }}>{kp.value}</div>
               <div style={{ fontSize: 11, color: c.muted2, marginTop: 4 }}>{kp.sub}</div>
+              {kp.ipc && (
+                <div style={{ fontSize: 11, color: c.muted, marginTop: 6 }}>{leyendaIpc(k.ipcActualizadoEn)}</div>
+              )}
+              {kp.ipc && refreshError && (
+                <div style={{ fontSize: 11, color: c.danger, marginTop: 4 }}>{refreshError}</div>
+              )}
             </div>
           ))}
         </div>
@@ -81,6 +119,23 @@ export function Dashboard() {
       </div>
     </div>
   );
+}
+
+function leyendaIpc(iso: string | null | undefined): string {
+  if (!iso) return 'Sin actualización';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Sin actualización';
+  const partes = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const get = (tipo: Intl.DateTimeFormatPartTypes) => partes.find((p) => p.type === tipo)?.value ?? '';
+  return `Actualizado el ${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`;
 }
 
 function ipcPct(n: number | null): string {

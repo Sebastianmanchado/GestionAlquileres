@@ -131,6 +131,8 @@ public class ContractService {
             );
         }
 
+        rechazarSiSolapa(inmuebleId, inicio, venc, null);
+
         BigDecimal importe = asDecimal(
             body.getOrDefault("importeTotal", 0)
         );
@@ -327,6 +329,8 @@ public class ContractService {
             (List<Map<String, Object>>) body.get("facturas_planificadas");
 
         int estadoId = estadoFromVencimiento(venc);
+
+        rechazarSiSolapa(inmuebleId, inicio, venc, id);
 
         // =========================================================
         // 4. ACTUALIZAR CONTRATO
@@ -767,6 +771,34 @@ public class ContractService {
         String s = o.toString().trim().replace(",", ".");
         if (s.isEmpty()) return null;
         try { return new BigDecimal(s); } catch (NumberFormatException e) { return null; }
+    }
+
+    private void rechazarSiSolapa(long inmuebleId, LocalDate inicio, LocalDate vencimiento, Long excluirId)
+            throws BadRequestException {
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("inmuebleId", inmuebleId)
+                .addValue("inicio", inicio)
+                .addValue("vencimiento", vencimiento);
+        String excluir = "";
+        if (excluirId != null) {
+            excluir = " AND c.id <> :excluirId";
+            params.addValue("excluirId", excluirId);
+        }
+        Map<String, Object> otro = repo.queryOne("""
+                SELECT TOP 1 c.numero
+                  FROM contrato c
+                  JOIN estado_contrato e ON e.id = c.estado_contrato_id
+                 WHERE c.inmueble_id = :inmuebleId
+                   AND e.codigo <> N'RESCINDIDO'
+                   AND c.fecha_inicio <= :vencimiento
+                   AND c.fecha_vencimiento >= :inicio
+                """ + excluir, params);
+        if (otro != null) {
+            throw new BadRequestException(
+                    "Ya existe el contrato " + otro.get("numero")
+                            + " en esta sucursal y sus fechas se solapan. "
+                            + "No puede haber dos contratos en el mismo inmueble al mismo tiempo.");
+        }
     }
 
     private int estadoFromVencimiento(LocalDate venc) {
