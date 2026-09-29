@@ -15,7 +15,8 @@ export function FormContrato({ id }: { id?: number }) {
   const [open, setOpen] = useState<string | null>('inmueble');
   const [form, setForm] = useState<Record<string, any>>({
     periodicidad: 'TRIMESTRAL',
-    tipoContratoId: 1
+    tipoContratoId: 1,
+    tipoFacturacion: 'mensual'
   });
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(!editing);
@@ -280,6 +281,9 @@ async function save() {
     console.log("=====================================")
     payload.modoIndice = modoIndice;
     console.log(payload)
+
+    const tolerancia = String(form.tolerancia ?? '').trim();
+    payload.tolerancia = tolerancia === '' ? 3 : tolerancia;
 
     if (editing) {
       console.log("viene a put")
