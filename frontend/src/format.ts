@@ -88,9 +88,9 @@ export function estadoFactura(codigo: string): EstadoInfo {
 export function estadoConciliacion(codigo: string): EstadoInfo {
   switch (codigo) {
     case 'OK': return { label: 'OK', tone: 'green' };
-    case 'OK_CON_DIF': return { label: 'OK con diferencia', tone: 'amber' };
-    case 'CON_DIFERENCIA': return { label: 'Con diferencia', tone: 'red' };
-    case 'SIN_FACTURA': return { label: 'Sin factura', tone: 'neutral' };
+    case 'OK_CON_DIF': return { label: 'OKD', tone: 'amber' };
+    case 'CON_DIFERENCIA': return { label: 'DIF', tone: 'red' };
+    case 'SIN_FACTURA': return { label: 'SINF', tone: 'neutral' };
     default: return { label: codigo, tone: 'neutral' };
   }
 }
