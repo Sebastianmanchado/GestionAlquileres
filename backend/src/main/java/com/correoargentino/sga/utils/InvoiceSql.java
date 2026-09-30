@@ -8,6 +8,7 @@ public final class InvoiceSql {
         SELECT
             id,
             contrato_id,
+            cuit_locador,
             porcentaje_esperado,
             monto_esperado,
             estado

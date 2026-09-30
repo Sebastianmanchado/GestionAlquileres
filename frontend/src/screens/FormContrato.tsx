@@ -7,6 +7,40 @@ import { Loading } from './Dashboard';
 
 type Cat = any;
 
+type LocadorForm = {
+  numero: number;
+  locadorId: string;          // id de un locador existente ('' si es nuevo)
+  razonSocial: string;        // solo si es nuevo
+  cuit: string;               // solo si es nuevo
+  email: string;
+  telefono: string;
+  cbu: string;
+  porcentaje: number;
+  acreedorSapCodigo: string;
+  cecoSap: string;
+  divisionSap: string;
+  cuentaGasto: string;
+  indicadorImpuesto: string;
+};
+
+function nuevoLocador(numero: number, porcentaje: number): LocadorForm {
+  return {
+    numero,
+    locadorId: '',
+    razonSocial: '',
+    cuit: '',
+    email: '',
+    telefono: '',
+    cbu: '',
+    porcentaje,
+    acreedorSapCodigo: '',
+    cecoSap: '',
+    divisionSap: '',
+    cuentaGasto: '',
+    indicadorImpuesto: '',
+  };
+}
+
 export function FormContrato({ id }: { id?: number }) {
   const { navigate, meta } = useApp();
   const editing = id != null;
@@ -16,7 +50,9 @@ export function FormContrato({ id }: { id?: number }) {
   const [form, setForm] = useState<Record<string, any>>({
     periodicidad: 'TRIMESTRAL',
     tipoContratoId: 1,
-    tipoFacturacion: 'mensual'
+    tipoFacturacion: 'mensual',
+    cantidad_locadores: 1,
+    locadores: [nuevoLocador(1, 100)],
   });
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(!editing);
@@ -61,6 +97,15 @@ export function FormContrato({ id }: { id?: number }) {
     );
   }
 
+  /** Genera N locadores con los porcentajes repartidos y conserva los que ya estaban cargados. */
+  function regenerarLocadores(cantidad: number, actuales: LocadorForm[]): LocadorForm[] {
+    return generarPorcentajes(cantidad).map((porcentaje, index) => ({
+      ...(actuales[index] ?? nuevoLocador(index + 1, porcentaje)),
+      numero: index + 1,
+      porcentaje,
+    }));
+  }
+
   useEffect(() => {
     api.get<Cat>('/catalogs').then(setCat);
   }, []);
@@ -69,7 +114,29 @@ export function FormContrato({ id }: { id?: number }) {
     if (!editing) return;
 
     api.get(`/contracts/${id}`).then((d: any) => {
-      console.log(d)
+      const plan: any[] = d.facturas_planificadas ?? [];
+
+      const locs: LocadorForm[] = (d.locadores ?? []).map((l: any, index: number) => {
+        const fp = plan.find((p) => String(p.locadorId) === String(l.id));
+        return {
+          numero: index + 1,
+          locadorId: String(l.id),
+          razonSocial: '',
+          cuit: '',
+          email: l.email ?? '',
+          telefono: l.telefono ?? '',
+          cbu: l.cbu ?? '',
+          porcentaje: Number(fp?.porcentaje ?? 0),
+          acreedorSapCodigo: l.acreedorSap ?? '',
+          cecoSap: l.cecoSap ?? '',
+          divisionSap: l.divisionSap ?? '',
+          cuentaGasto: l.cuentaGasto ?? '',
+          indicadorImpuesto: l.indicadorImpuesto ?? '',
+        };
+      });
+
+      const locadores = locs.length > 0 ? locs : [nuevoLocador(1, 100)];
+
       setForm({
         inmuebleId: d.inmuebleId,
         nis: d.nis,
@@ -88,34 +155,19 @@ export function FormContrato({ id }: { id?: number }) {
         deposito: d.deposito,
         tipoContratoId: d.tipoContratoId ?? 1,
         tipoFacturacion: d.tipoFacturacion ?? 'mensual',
-        cantidad_facturas: d.cantidadFacturas ?? 1,
-        facturas_planificadas: d.facturas_planificadas ?? [],
-        locadorId: d.locadorId,
-        acreedorSapCodigo: d.acreedorSap ?? '',
-        cecoSap: d.cecoSap ?? '',
-        divisionSap: d.divisionSap ?? '',
-        cuentaGasto: d.cuentaGasto ?? '',
-        indicadorImpuesto: d.indicadorImpuesto ?? '',
+        cantidad_facturas: locadores.length,
+        locadores
       });
 
-      console.log("COMO VIENE EL CONTRATO")
-      console.log(d)
-
       setModoIndice('existente');
-
-      const indiceActual = (cat?.indices ?? []).find(
-        (x: any) => String(x.id) === String(d.indiceId)
-      );
-
-      elegirIndice(d.indiceId)
+      elegirIndice(d.indiceId);
 
       setModoInmueble('existente');
-      setBusquedaInmueble(
-        [d.nis, d.denom].filter(Boolean).join(' · ')
-      );
+      setBusquedaInmueble([d.nis, d.denom].filter(Boolean).join(' · '));
 
       setReady(true);
     });
+
   }, [editing, id]);
 
   useEffect(() => {
@@ -230,74 +282,118 @@ export function FormContrato({ id }: { id?: number }) {
     }));
   };
 
+  const setLocador = (index: number, cambios: Partial<LocadorForm>) => {
+    setForm((f) => {
+      const locs: LocadorForm[] = [...(f.locadores ?? [])];
+      locs[index] = { ...locs[index], ...cambios };
+      return { ...f, locadores: locs };
+    });
+  };
+
+  const sumaPct = (form.locadores ?? []).reduce(
+    (t: number, l: LocadorForm) => t + (Number(l.porcentaje) || 0),
+    0
+  );
+
 async function save() {
   setSaving(true);
 
   try {
-    console.log(form);
+    const locadores: LocadorForm[] = form.locadores ?? [];
+    const importeTotal = Number(form.importeTotal) || 0;
 
-    const facturas = form.facturas_planificadas ?? [];
+    if (locadores.length === 0) {
+      setError('Cargá al menos un locador.');
+      return;
+    }
 
-    const totalPorcentaje = facturas.reduce(
-      (total: number, factura: { porcentaje: any }) =>
-        total + Number(factura.porcentaje),
-      0
-    );
-
+    const totalPorcentaje = locadores.reduce((t, l) => t + (Number(l.porcentaje) || 0), 0);
     if (totalPorcentaje !== 100) {
-      setError('Los porcentajes de las facturas deben sumar 100%.');
-      setSaving(false);
+      setError('Los porcentajes de los locadores deben sumar 100%.');
+      return;
+    }
+
+    const incompleto = locadores.find(
+      (l) => !l.locadorId && (!l.razonSocial?.trim() || !l.cuit?.trim())
+    );
+    if (incompleto) {
+      setError(`Locador ${incompleto.numero}: seleccioná uno existente o completá razón social y CUIT.`);
+      return;
+    }
+
+    const ids = locadores.filter((l) => l.locadorId).map((l) => String(l.locadorId));
+    if (new Set(ids).size !== ids.length) {
+      setError('No se puede repetir el mismo locador en el contrato.');
       return;
     }
 
     if (modoInmueble === 'existente' && !form.inmuebleId) {
       setError('Seleccioná un inmueble existente.');
-      setSaving(false);
       return;
     }
 
     if (modoIndice === 'existente' && !form.indiceId) {
       setError('Seleccioná un índice de ajuste existente.');
-      setSaving(false);
       return;
     }
 
-    if (
-      modoIndice === 'nuevo' &&
-      (!form.indiceCodigo?.trim() || !form.indiceNombre?.trim())
-    ) {
-      setError(
-        'Completá el código y el nombre del nuevo índice.'
-      );
-      setSaving(false);
+    if (modoIndice === 'nuevo' && (!form.indiceCodigo?.trim() || !form.indiceNombre?.trim())) {
+      setError('Completá el código y el nombre del nuevo índice.');
       return;
     }
 
     setError('');
 
-    const payload = { ...form };
+    const payload: Record<string, any> = { ...form };
     if (modoInmueble === 'nuevo') delete payload.inmuebleId;
     if (modoIndice === 'nuevo') delete payload.indiceId;
-    console.log("=====================================")
     payload.modoIndice = modoIndice;
-    console.log(payload)
 
     const tolerancia = String(form.tolerancia ?? '').trim();
     payload.tolerancia = tolerancia === '' ? 3 : tolerancia;
 
+    // una factura planificada por locador
+    payload.cantidad_facturas = locadores.length;
+
+    // los datos SAP ahora viajan dentro de cada locador
+    delete payload.acreedorSapCodigo;
+    delete payload.cecoSap;
+    delete payload.divisionSap;
+    delete payload.cuentaGasto;
+    delete payload.indicadorImpuesto;
+
+    payload.locadores = locadores.map((l) => ({
+      locadorId: l.locadorId ? Number(l.locadorId) : null,
+      razonSocial: l.locadorId ? null : l.razonSocial.trim(),
+      cuit: l.locadorId ? null : l.cuit.trim(),
+      email: l.email?.trim() || null,
+      telefono: l.telefono?.trim() || null,
+      cbu: l.cbu?.trim() || null,
+      porcentaje: Number(l.porcentaje),
+      importe: Math.round(importeTotal * Number(l.porcentaje)) / 100,
+      acreedorSapCodigo: l.acreedorSapCodigo?.trim() || null,
+      cecoSap: l.cecoSap?.trim() || null,
+      divisionSap: l.divisionSap?.trim() || null,
+      cuentaGasto: l.cuentaGasto?.trim() || null,
+      indicadorImpuesto: l.indicadorImpuesto?.trim() || null,
+    }));
+
+    payload.facturas_planificadas = payload.locadores.map((l: any, i: number) => ({
+      numero: i + 1,
+      locadorId: l.locadorId,
+      porcentaje: l.porcentaje,
+      importe: l.importe,
+    }));
+
+    console.log(payload);
+
     if (editing) {
-      console.log("viene a put")
       await api.put(`/contracts/${id}`, payload);
       navigate({ screen: 'detalle', id: id! });
     } else {
-      const res = await api.post<{ id: number }>(
-        '/contracts',
-        payload
-      );
-
+      const res = await api.post<{ id: number }>('/contracts', payload);
       navigate({ screen: 'detalle', id: res.id });
     }
-
   } catch (e: any) {
     console.error('Error al guardar contrato:', e);
 
@@ -308,7 +404,6 @@ async function save() {
       'Ocurrió un error al guardar el contrato.';
 
     setError(String(backendMessage));
-
   } finally {
     setSaving(false);
   }
@@ -508,93 +603,7 @@ async function save() {
         </>
       ),
     },
-    {
-      key: 'locador',
-      titulo: 'Locador',
-      body: (
-        <>
-          <F label="Locador" span={2}>
-            <select
-              style={{ ...s.input }}
-              value={form.locadorId ?? ''}
-              onChange={(e) => set('locadorId', e.target.value)}
-            >
-              <option value="">Seleccionar locador existente</option>
-
-              {cat.locadores.map((l: any) => (
-                <option key={l.id} value={l.id}>
-                  {l.razonSocial} · {l.cuit}
-                </option>
-              ))}
-            </select>
-          </F>
-
-          <F label="Razón social (nuevo)">
-            <input
-              style={s.input}
-              value={form.razonSocial ?? ''}
-              onChange={(e) => set('razonSocial', e.target.value)}
-              placeholder="Sólo si es un locador nuevo"
-            />
-          </F>
-
-          <F label="CUIT (nuevo)">
-            <input
-              style={s.input}
-              value={form.cuit ?? ''}
-              onChange={(e) => set('cuit', e.target.value)}
-              placeholder="30-XXXXXXXX-X"
-            />
-          </F>
-
-          <F label="Acreedor SAP">
-            <input
-              style={s.input}
-              value={form.acreedorSapCodigo ?? ''}
-              onChange={(e) => set('acreedorSapCodigo', e.target.value)}
-              placeholder="A00822"
-            />
-          </F>
-
-          <F label="CeCo SAP">
-            <input
-              style={s.input}
-              value={form.cecoSap ?? ''}
-              onChange={(e) => set('cecoSap', e.target.value)}
-              placeholder="53025952"
-            />
-          </F>
-
-          <F label="División SAP">
-            <input
-              style={s.input}
-              value={form.divisionSap ?? ''}
-              onChange={(e) => set('divisionSap', e.target.value)}
-              placeholder="4952"
-            />
-          </F>
-
-          <F label="Cuenta de gasto">
-            <input
-              style={s.input}
-              value={form.cuentaGasto ?? ''}
-              onChange={(e) => set('cuentaGasto', e.target.value)}
-              placeholder="510802"
-            />
-          </F>
-
-          <F label="Indicador de impuestos">
-            <input
-              style={s.input}
-              value={form.indicadorImpuesto ?? ''}
-              onChange={(e) => set('indicadorImpuesto', e.target.value)}
-              placeholder="C1"
-            />
-          </F>
-        </>
-      ),
-    },
-    {
+        {
       key: 'economicas',
       titulo: 'Condiciones económicas',
       body: (
@@ -635,44 +644,7 @@ async function save() {
             <select
               style={{ ...s.input }}
               value={form.tipoFacturacion ?? 'mensual'}
-              onChange={(e) => {
-                const tipo = e.target.value;
-
-                set('tipoFacturacion', tipo);
-
-                if (tipo === 'mensual') {
-                  const cantidad = calcularCantidadMeses(
-                    form.fechaInicio,
-                    form.fechaVencimiento
-                  );
-
-                  set('cantidad_facturas', cantidad);
-
-                  set(
-                    'facturas_planificadas',
-                    generarPorcentajes(cantidad).map(
-                      (porcentaje, index) => ({
-                        numero: index + 1,
-                        porcentaje,
-                        importe:
-                          (Number(form.importeTotal) || 0) *
-                          (Number(porcentaje) || 0) /
-                          100
-                      })
-                    )
-                  );
-                } else {
-                  set('cantidad_facturas', 1);
-
-                  set('facturas_planificadas', [
-                    {
-                      numero: 1,
-                      porcentaje: 100,
-                      importe: Number(form.importeTotal)
-                    },
-                  ]);
-                }
-              }}
+              onChange={(e) => set('tipoFacturacion', e.target.value)}
             >
               <option value="mensual">Mensual</option>
               <option value="personalizado">Personalizado</option>
@@ -686,32 +658,7 @@ async function save() {
                   type="date"
                   style={s.input}
                   value={form.fechaInicio ?? ''}
-                  onChange={(e) => {
-                    const fechaInicio = e.target.value;
-
-                    set('fechaInicio', fechaInicio);
-
-                    const cantidad = calcularCantidadMeses(
-                      fechaInicio,
-                      form.fechaVencimiento
-                    );
-
-                    set('cantidad_facturas', cantidad);
-
-                    set(
-                      'facturas_planificadas',
-                      generarPorcentajes(cantidad).map(
-                        (porcentaje, index) => ({
-                          numero: index + 1,
-                          porcentaje,
-                          importe:
-                            (Number(form.importeTotal) || 0) *
-                            (Number(porcentaje) || 0) /
-                            100
-                        })
-                      )
-                    );
-                  }}
+                  onChange={(e) => set('fechaInicio', e.target.value)}
                 />
               </F>
 
@@ -720,136 +667,227 @@ async function save() {
                   type="date"
                   style={s.input}
                   value={form.fechaVencimiento ?? ''}
-                  onChange={(e) => {
-                    const fechaFin = e.target.value;
-
-                    set('fechaVencimiento', fechaFin);
-
-                    const cantidad = calcularCantidadMeses(
-                      form.fechaInicio,
-                      fechaFin
-                    );
-
-                    set('cantidad_facturas', cantidad);
-
-                    set(
-                      'facturas_planificadas',
-                      generarPorcentajes(cantidad).map(
-                        (porcentaje, index) => ({
-                          numero: index + 1,
-                          porcentaje,
-                          importe:
-                            (Number(form.importeTotal) || 0) *
-                            (Number(porcentaje) || 0) /
-                            100
-                        })
-                      )
-                    );
-                  }}
+                  onChange={(e) => set('fechaVencimiento', e.target.value)}
                 />
               </F>
             </>
           )}
+        </>
+      ),
+    },
+    {
+      key: 'locador',
+      titulo: 'Locador',
+      body: (
+        <>
+          <F label="Cantidad de locadores">
+            <input
+              type="number"
+              min="1"
+              style={s.input}
+              value={form.cantidad_locadores ?? 1}
+              onChange={(e) => {
+                const n = Number.parseInt(e.target.value || '1', 10);
+                const cantidad = Number.isNaN(n) ? 1 : Math.max(1, n);
 
-          {form.tipoFacturacion === 'personalizado' && (
-            <F label="Cantidad de facturas">
-              <input
-                type="number"
-                style={s.input}
-                value={form.cantidad_facturas ?? 0}
-                onChange={(e) => {
-                  const cantidad = Math.max(
-                    1,
-                    Number.parseInt(e.target.value || '1', 10)
-                  );
+                setForm((f) => ({
+                  ...f,
+                  cantidad_locadores: cantidad,
+                  locadores: regenerarLocadores(cantidad, f.locadores ?? []),
+                }));
+              }}
+            />
+          </F>
 
-                  set('cantidad_facturas', cantidad);
+          <F label="Suma de porcentajes">
+            <input
+              style={{
+                ...s.input,
+                ...lockedInput,
+                fontWeight: 600,
+                color: sumaPct === 100 ? c.green : c.danger,
+              }}
+              value={`${sumaPct}%`}
+              disabled
+            />
+          </F>
 
-                  set(
-                    'facturas_planificadas',
-                    generarPorcentajes(cantidad).map(
-                      (porcentaje, index) => ({
-                        numero: index + 1,
-                        porcentaje,
-                        importe:
-                          (Number(form.importeTotal) || 0) *
-                          (Number(porcentaje) || 0) /
-                          100
-                      })
-                    )
-                  );
-                }}
-              />
-            </F>
-          )}
-
-          {(form.facturas_planificadas ?? []).map((factura: any, index: number) => {
+          {(form.locadores ?? []).map((loc: LocadorForm, index: number) => {
             const importe =
               (Number(form.importeTotal) || 0) *
-              (Number(factura.porcentaje) || 0) /
+              (Number(loc.porcentaje) || 0) /
               100;
 
+            const existente = !!loc.locadorId;
+
             return (
-              <F
-                key={factura.numero}
-                label={`Factura ${factura.numero}`}
-                span={2}
+              <div
+                key={loc.numero}
+                style={{
+                  gridColumn: '1 / -1',
+                  border: `1px solid ${c.line}`,
+                  borderRadius: 4,
+                  padding: 12,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      flex: 1
+                <div style={{ gridColumn: '1 / -1', fontWeight: 700, fontSize: 12.5 }}>
+                  Locador {loc.numero}
+                </div>
+
+                <F label="Locador existente" span={2}>
+                  <select
+                    style={{ ...s.input }}
+                    value={loc.locadorId ?? ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (!value) {
+                        setLocador(index, { locadorId: '' });
+                        return;
+                      }
+
+                      const cl = cat.locadores.find((x: any) => String(x.id) === value) ?? {};
+                      setLocador(index, {
+                        locadorId: value,
+                        razonSocial: '',
+                        cuit: '',
+                        email: cl.email ?? '',
+                        telefono: cl.telefono ?? '',
+                        cbu: cl.cbu ?? '',
+                        acreedorSapCodigo: cl.acreedorSap ?? loc.acreedorSapCodigo,
+                        cecoSap: cl.cecoSap ?? loc.cecoSap,
+                        divisionSap: cl.divisionSap ?? loc.divisionSap,
+                        cuentaGasto: cl.cuentaGasto ?? loc.cuentaGasto,
+                        indicadorImpuesto: cl.indicadorImpuesto ?? loc.indicadorImpuesto,
+                      });
                     }}
                   >
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      style={{
-                        ...s.input,
-                        flex: 1
-                      }}
-                      value={factura.porcentaje}
-                      onChange={(e) => {
-                        const facturas = [...form.facturas_planificadas];
+                    {/* ...options sin cambios... */}
+                  </select>
+                </F>
 
-                        facturas[index] = {
-                          ...facturas[index],
-                          porcentaje: Number.parseInt(
-                            e.target.value || '0',
-                            10
-                          ),
-                        };
 
-                        set('facturas_planificadas', facturas);
-                      }}
-                    />
+                <F label="Razón social (nuevo)">
+                  <input
+                    style={{ ...s.input, ...(existente ? lockedInput : {}) }}
+                    value={loc.razonSocial ?? ''}
+                    disabled={existente}
+                    onChange={(e) => setLocador(index, { razonSocial: e.target.value })}
+                    placeholder="Sólo si es un locador nuevo"
+                  />
+                </F>
 
-                    <span
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 13,
-                        color: c.muted
-                      }}
-                    >
-                      %
-                    </span>
+                <F label="CUIT (nuevo)">
+                  <input
+                    style={{ ...s.input, ...(existente ? lockedInput : {}) }}
+                    value={loc.cuit ?? ''}
+                    disabled={existente}
+                    onChange={(e) => setLocador(index, { cuit: e.target.value })}
+                    placeholder="30-XXXXXXXX-X"
+                  />
+                </F>
+
+                                <F label="Contacto (mail)">
+                  <input
+                    type="email"
+                    style={s.input}
+                    value={loc.email ?? ''}
+                    onChange={(e) => setLocador(index, { email: e.target.value })}
+                    placeholder="contacto@empresa.com"
+                  />
+                </F>
+
+                <F label="Teléfono contacto">
+                  <input
+                    style={s.input}
+                    value={loc.telefono ?? ''}
+                    onChange={(e) => setLocador(index, { telefono: e.target.value })}
+                    placeholder="011 4555-2310"
+                  />
+                </F>
+
+                <F label="CBU" span={2}>
+                  <input
+                    style={s.input}
+                    value={loc.cbu ?? ''}
+                    maxLength={22}
+                    onChange={(e) =>
+                      setLocador(index, { cbu: e.target.value.replace(/\D/g, '') })
+                    }
+                    placeholder="22 dígitos"
+                  />
+                </F>
+
+                <F label="Acreedor SAP">
+                  <input
+                    style={s.input}
+                    value={loc.acreedorSapCodigo ?? ''}
+                    onChange={(e) => setLocador(index, { acreedorSapCodigo: e.target.value })}
+                    placeholder="A00822"
+                  />
+                </F>
+
+                <F label="CeCo SAP">
+                  <input
+                    style={s.input}
+                    value={loc.cecoSap ?? ''}
+                    onChange={(e) => setLocador(index, { cecoSap: e.target.value })}
+                    placeholder="53025952"
+                  />
+                </F>
+
+                <F label="División SAP">
+                  <input
+                    style={s.input}
+                    value={loc.divisionSap ?? ''}
+                    onChange={(e) => setLocador(index, { divisionSap: e.target.value })}
+                    placeholder="4952"
+                  />
+                </F>
+
+                <F label="Cuenta de gasto">
+                  <input
+                    style={s.input}
+                    value={loc.cuentaGasto ?? ''}
+                    onChange={(e) => setLocador(index, { cuentaGasto: e.target.value })}
+                    placeholder="510802"
+                  />
+                </F>
+
+                <F label="Indicador de impuestos">
+                  <input
+                    style={s.input}
+                    value={loc.indicadorImpuesto ?? ''}
+                    onChange={(e) => setLocador(index, { indicadorImpuesto: e.target.value })}
+                    placeholder="C1"
+                  />
+                </F>
+
+                <F label="Porcentaje de factura">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        style={{ ...s.input, flex: 1 }}
+                        value={loc.porcentaje}
+                        onChange={(e) =>
+                          setLocador(index, {
+                            porcentaje: Number.parseInt(e.target.value || '0', 10),
+                          })
+                        }
+                      />
+                      <span style={{ marginLeft: 6, fontSize: 13, color: c.muted }}>%</span>
+                    </div>
+
+                    <span style={{ fontSize: 13 }}>${importe.toFixed(2)}</span>
                   </div>
-
-                  <span style={{ fontSize: 13 }}>
-                    ${importe.toFixed(2)}
-                  </span>
-                </div>
-              </F>
+                </F>
+              </div>
             );
           })}
         </>

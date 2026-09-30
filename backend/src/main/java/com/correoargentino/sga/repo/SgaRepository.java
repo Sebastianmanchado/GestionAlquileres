@@ -116,8 +116,9 @@ public class SgaRepository {
                c.fecha_vencimiento                    AS vencimiento,
                ec.codigo                              AS estadoCodigo,
                ec.nombre                              AS estadoNombre,
-               lo.razon_social                        AS propietario,
-               lo.cuit                                 AS locadorCuit
+               loc.propietario                        AS propietario,
+               loc.locadorCuit                        AS locadorCuit,
+               loc.cantidadLocadores                  AS cantidadLocadores
           FROM contrato c
           JOIN inmueble i          ON i.id = c.inmueble_id
           LEFT JOIN region r       ON r.id = i.region_id
@@ -125,7 +126,14 @@ public class SgaRepository {
           LEFT JOIN provincia p    ON p.id = l.provincia_id
           JOIN tipo_contrato tc    ON tc.id = c.tipo_contrato_id
           JOIN estado_contrato ec  ON ec.id = c.estado_contrato_id
-          JOIN locador lo          ON lo.id = c.locador_id
+          OUTER APPLY (
+              SELECT STRING_AGG(lo.razon_social, ' / ') WITHIN GROUP (ORDER BY lo.id) AS propietario,
+                     STRING_AGG(RTRIM(lo.cuit), ', ')   WITHIN GROUP (ORDER BY lo.id) AS locadorCuit,
+                     COUNT(*)                                                        AS cantidadLocadores
+                FROM contrato_locador cl
+                JOIN locador lo ON lo.id = cl.locador_id
+               WHERE cl.contrato_id = c.id
+          ) loc
           LEFT JOIN indice_ajuste ia ON ia.id = c.indice_ajuste_id
          WHERE ec.id <> 4 /*FILTERS*/
         """;
@@ -215,15 +223,22 @@ public class SgaRepository {
         }
 
         String base = "FROM contrato c " +
-                "JOIN inmueble i ON i.id=c.inmueble_id " +
-                "LEFT JOIN region r ON r.id=i.region_id " +
-                "LEFT JOIN localidad l ON l.id=i.localidad_id " +
-                "LEFT JOIN provincia p ON p.id=l.provincia_id " +
-                "JOIN tipo_contrato tc ON tc.id=c.tipo_contrato_id " +
-                "JOIN estado_contrato ec ON ec.id=c.estado_contrato_id " +
-                "JOIN locador lo ON lo.id=c.locador_id " +
-                "LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id " +
-                "WHERE ec.id <> :rescindido" + where;
+            "JOIN inmueble i ON i.id=c.inmueble_id " +
+            "LEFT JOIN region r ON r.id=i.region_id " +
+            "LEFT JOIN localidad l ON l.id=i.localidad_id " +
+            "LEFT JOIN provincia p ON p.id=l.provincia_id " +
+            "JOIN tipo_contrato tc ON tc.id=c.tipo_contrato_id " +
+            "JOIN estado_contrato ec ON ec.id=c.estado_contrato_id " +
+            "OUTER APPLY ( " +
+            "    SELECT STRING_AGG(lx.razon_social, ' / ') WITHIN GROUP (ORDER BY lx.id) AS razon_social, " +
+            "           STRING_AGG(RTRIM(lx.cuit), ', ')   WITHIN GROUP (ORDER BY lx.id) AS cuit, " +
+            "           COUNT(*) AS cantidad_locadores " +
+            "      FROM contrato_locador cl " +
+            "      JOIN locador lx ON lx.id = cl.locador_id " +
+            "     WHERE cl.contrato_id = c.id " +
+            ") lo " +
+            "LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id " +
+            "WHERE ec.id <> :rescindido" + where;
 
         p.addValue("rescindido", ESTADO_RESCINDIDO);
 
@@ -252,57 +267,72 @@ public class SgaRepository {
         MapSqlParameterSource p = new MapSqlParameterSource("id", id);
         Map<String, Object> head = queryOne("""
             SELECT c.id, c.numero, i.id AS inmuebleId, i.nis, i.denominacion AS denom,
-                   i.region_id AS regionId, i.localidad_id AS localidadId,
-                   (SELECT TOP 1 idd.destino_id FROM inmueble_destino idd WHERE idd.inmueble_id = i.id) AS destinoId,
-                   i.direccion, l.nombre AS localidad, p.nombre AS provincia, r.nombre AS region,
-                   du.destino AS destino,
-                   i.superficie_cubierta_m2 AS supCubierta, i.superficie_terreno_m2 AS supTerreno,
-                   i.responsable, i.responsable_email AS responsableEmail, i.responsable_telefono AS responsableTelefono,
-                   ec.codigo AS estadoCodigo, ec.nombre AS estadoNombre,
-                   tc.nombre AS tipo,
-                   c.fecha_inicio AS inicio, c.fecha_vencimiento AS vencimiento,
-                   c.moneda, c.importe_inicial AS importeInicial, c.deposito_garantia AS deposito,
-                   c.periodicidad_ajuste AS periodicidad, c.tolerancia_importe_pct AS tolerancia, c.locador_id AS locadorId, c.indice_ajuste_id AS indiceId, c.tipo_facturacion as tipoFacturacion, c.tipo_contrato_id AS tipoContratoId,
-                   ia.codigo AS indiceCodigo, ia.nombre AS indiceNombre,
-                   lo.razon_social AS locadorRazon, lo.cuit AS locadorCuit, lo.email AS locadorEmail, lo.telefono AS locadorTelefono,
-                   sap.codigo_sap AS acreedorSap,
-                   c.ceco_sap AS cecoSap, c.division_sap AS divisionSap,
-                   c.cuenta_gasto AS cuentaGasto, c.indicador_impuesto AS indicadorImpuesto,
-                   ant.numero AS contratoAnteriorNumero, ant.id AS contratoAnteriorId
-              FROM contrato c
-              JOIN inmueble i ON i.id=c.inmueble_id
-              LEFT JOIN region r ON r.id=i.region_id
-              LEFT JOIN localidad l ON l.id=i.localidad_id
-              LEFT JOIN provincia p ON p.id=l.provincia_id
-              LEFT JOIN (SELECT idd.inmueble_id, STRING_AGG(d.nombre,' + ') AS destino
-                           FROM inmueble_destino idd JOIN destino_uso d ON d.id=idd.destino_id
-                          GROUP BY idd.inmueble_id) du ON du.inmueble_id=i.id
-              JOIN estado_contrato ec ON ec.id=c.estado_contrato_id
-              JOIN tipo_contrato tc ON tc.id=c.tipo_contrato_id
-              LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id
-              JOIN locador lo ON lo.id=c.locador_id
-              LEFT JOIN acreedor_sap sap ON sap.id=c.acreedor_sap_id
-              LEFT JOIN contrato ant ON ant.id=c.contrato_anterior_id
-             WHERE c.id=:id
+                i.region_id AS regionId, i.localidad_id AS localidadId,
+                (SELECT TOP 1 idd.destino_id FROM inmueble_destino idd WHERE idd.inmueble_id = i.id) AS destinoId,
+                i.direccion, l.nombre AS localidad, p.nombre AS provincia, r.nombre AS region,
+                du.destino AS destino,
+                i.superficie_cubierta_m2 AS supCubierta, i.superficie_terreno_m2 AS supTerreno,
+                i.responsable, i.responsable_email AS responsableEmail, i.responsable_telefono AS responsableTelefono,
+                ec.codigo AS estadoCodigo, ec.nombre AS estadoNombre,
+                tc.nombre AS tipo,
+                c.fecha_inicio AS inicio, c.fecha_vencimiento AS vencimiento,
+                c.moneda, c.importe_inicial AS importeInicial, c.deposito_garantia AS deposito,
+                c.periodicidad_ajuste AS periodicidad, c.tolerancia_importe_pct AS tolerancia,
+                c.indice_ajuste_id AS indiceId, c.tipo_facturacion AS tipoFacturacion, c.tipo_contrato_id AS tipoContratoId,
+                ia.codigo AS indiceCodigo, ia.nombre AS indiceNombre,
+                sap.codigo_sap AS acreedorSap,
+                c.ceco_sap AS cecoSap, c.division_sap AS divisionSap,
+                c.cuenta_gasto AS cuentaGasto, c.indicador_impuesto AS indicadorImpuesto,
+                ant.numero AS contratoAnteriorNumero, ant.id AS contratoAnteriorId
+            FROM contrato c
+            JOIN inmueble i ON i.id=c.inmueble_id
+            LEFT JOIN region r ON r.id=i.region_id
+            LEFT JOIN localidad l ON l.id=i.localidad_id
+            LEFT JOIN provincia p ON p.id=l.provincia_id
+            LEFT JOIN (SELECT idd.inmueble_id, STRING_AGG(d.nombre,' + ') AS destino
+                        FROM inmueble_destino idd JOIN destino_uso d ON d.id=idd.destino_id
+                        GROUP BY idd.inmueble_id) du ON du.inmueble_id=i.id
+            JOIN estado_contrato ec ON ec.id=c.estado_contrato_id
+            JOIN tipo_contrato tc ON tc.id=c.tipo_contrato_id
+            LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id
+            LEFT JOIN acreedor_sap sap ON sap.id=c.acreedor_sap_id
+            LEFT JOIN contrato ant ON ant.id=c.contrato_anterior_id
+            WHERE c.id=:id
             """, p);
         if (head == null) return null;
 
-        head.put(
-            "facturas_planificadas",
-            query(
-                """
-                SELECT
-                    fp.id,
-                    fp.porcentaje_esperado AS porcentaje,
-                    fp.monto_esperado AS importe,
-                    fp.estado
-                FROM factura_planificada fp
-                WHERE fp.contrato_id = :id
-                ORDER BY fp.id
-                """,
-                p
-            )
-        );
+        head.put("locadores", query("""
+            SELECT lo.id,
+                lo.razon_social       AS razonSocial,
+                RTRIM(lo.cuit)        AS cuit,
+                lo.email,
+                lo.telefono,
+                lo.cbu,
+                sap.codigo_sap        AS acreedorSap,
+                lo.ceco_sap           AS cecoSap,
+                lo.division_sap       AS divisionSap,
+                lo.cuenta_gasto       AS cuentaGasto,
+                lo.indicador_impuesto AS indicadorImpuesto
+            FROM contrato_locador cl
+            JOIN locador lo           ON lo.id = cl.locador_id
+            LEFT JOIN acreedor_sap sap ON sap.locador_id = lo.id
+            WHERE cl.contrato_id = :id
+            ORDER BY lo.id
+            """, p));
+
+        head.put("facturas_planificadas", query("""
+            SELECT fp.id,
+                fp.porcentaje_esperado AS porcentaje,
+                fp.monto_esperado AS importe,
+                fp.estado,
+                fp.locador_id AS locadorId,
+                lo.razon_social AS locadorRazon,
+                lo.cuit AS locadorCuit
+            FROM factura_planificada fp
+            JOIN locador lo ON lo.id = fp.locador_id
+            WHERE fp.contrato_id = :id
+            ORDER BY fp.id
+            """, p));
 
         Object valorActual = jdbc.query("SELECT TOP 1 importe_mensual FROM contrato_valor WHERE contrato_id=:id AND vigencia_hasta IS NULL",
                 p, (rs) -> rs.next() ? rs.getBigDecimal(1) : null);
@@ -310,28 +340,24 @@ public class SgaRepository {
 
         head.put("seguro", queryOne("""
             SELECT tipo, nro_poliza AS poliza, suma_asegurada AS suma, vigencia_hasta AS vigencia
-              FROM contrato_seguro WHERE contrato_id=:id
+            FROM contrato_seguro WHERE contrato_id=:id
             """, p));
 
         head.put("valueHistory", query("""
             SELECT vigencia_desde AS desde, vigencia_hasta AS hasta, importe_mensual AS importe,
-                   origen, coeficiente_aplicado AS coeficiente,
-                   (SELECT codigo FROM indice_ajuste WHERE id = cv.indice_id) AS indice
-              FROM contrato_valor cv WHERE contrato_id=:id ORDER BY vigencia_desde DESC
+                origen, coeficiente_aplicado AS coeficiente,
+                (SELECT codigo FROM indice_ajuste WHERE id = cv.indice_id) AS indice
+            FROM contrato_valor cv WHERE contrato_id=:id ORDER BY vigencia_desde DESC
             """, p));
 
         head.put("facturas", query("""
             SELECT f.id, f.fecha_emision AS fecha, f.numero_comprobante AS numero,
-                   f.importe_total AS importe, f.periodo_facturado AS periodo, f.estado AS estadoCodigo
-              FROM factura f WHERE f.contrato_id=:id ORDER BY f.periodo_facturado DESC, f.id DESC
+                f.importe_total AS importe, f.periodo_facturado AS periodo, f.estado AS estadoCodigo
+            FROM factura f WHERE f.contrato_id=:id ORDER BY f.periodo_facturado DESC, f.id DESC
             """, p));
 
         head.put("documents", query("""
-            SELECT
-                a.id,
-                a.nombre_original AS nombre,
-                'FACTURA' AS tipo,
-                a.creado_en AS fecha
+            SELECT a.id, a.nombre_original AS nombre, 'FACTURA' AS tipo, a.creado_en AS fecha
             FROM factura f
             JOIN archivo a ON a.factura_id = f.id
             WHERE f.contrato_id = :id
@@ -340,10 +366,10 @@ public class SgaRepository {
 
         head.put("changeLog", query("""
             SELECT au.fecha, u.nombre AS usuario, au.descripcion AS campo,
-                   au.datos_antes AS anterior, au.datos_despues AS nuevo
-              FROM auditoria au LEFT JOIN usuario u ON u.id=au.usuario_id
-             WHERE au.entidad='contrato' AND au.entidad_id=CAST(:id AS NVARCHAR(60)) AND au.datos_antes IS NOT NULL
-             ORDER BY au.fecha DESC
+                au.datos_antes AS anterior, au.datos_despues AS nuevo
+            FROM auditoria au LEFT JOIN usuario u ON u.id=au.usuario_id
+            WHERE au.entidad='contrato' AND au.entidad_id=CAST(:id AS NVARCHAR(60)) AND au.datos_antes IS NOT NULL
+            ORDER BY au.fecha DESC
             """, p));
 
         return head;

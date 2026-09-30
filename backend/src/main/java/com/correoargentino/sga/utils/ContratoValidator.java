@@ -5,8 +5,11 @@ import org.apache.coyote.BadRequestException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.correoargentino.sga.utils.Campos.*;
 
@@ -71,7 +74,7 @@ public final class ContratoValidator {
                 "La fecha de vencimiento no puede ser anterior a la fecha de inicio.");
         }
 
-        validarFacturasPlanificadas(body.get("facturas_planificadas"));
+        locadores(body);
     }
 
     /** Quita guiones y espacios; exige exactamente 11 dígitos. */
@@ -150,45 +153,96 @@ public final class ContratoValidator {
         return body.get("tipoFacturacion") == "mensual";
     }
 
-    private static void validarFacturasPlanificadas(Object raw) throws BadRequestException {
+    /** Locador tal como llega en el body, ya validado y normalizado. */
+    public record LocadorBody(
+        Long locadorId,
+        String razonSocial,
+        String cuit,
+        String email,
+        String telefono,
+        String cbu,
+        int porcentaje,
+        String acreedorSapCodigo,
+        String cecoSap,
+        String divisionSap,
+        String cuentaGasto,
+        String indicadorImpuesto) {}
 
-        if (raw == null) {
-            throw new BadRequestException("Las facturas son obligatorias.");
+    /**
+     * Valida body.locadores: al menos uno, porcentajes entre 0 y 100 que sumen 100,
+     * cada uno existente (locadorId) o nuevo (razonSocial + CUIT) y sin repetidos.
+     */
+    public static List<LocadorBody> locadores(Map<String, Object> body) throws BadRequestException {
+
+        Object raw = body.get("locadores");
+
+        if (!(raw instanceof List<?> lista) || lista.isEmpty()) {
+            throw new BadRequestException("Debe indicar al menos un locador.");
         }
-        if (!(raw instanceof List<?> facturas)) {
-            throw new BadRequestException("Las facturas deben ser una lista.");
-        }
-        if (facturas.isEmpty()) {
-            throw new BadRequestException("Debe existir al menos una factura.");
-        }
 
-        int totalPorcentaje = 0;
+        List<LocadorBody> result = new ArrayList<>();
+        Set<Long> ids = new HashSet<>();
+        Set<String> cuits = new HashSet<>();
+        int total = 0;
 
-        for (int i = 0; i < facturas.size(); i++) {
+        for (int i = 0; i < lista.size(); i++) {
 
-            if (!(facturas.get(i) instanceof Map<?, ?> factura)) {
+            if (!(lista.get(i) instanceof Map<?, ?> l)) {
                 throw new BadRequestException(
-                    "La factura en la posición " + i + " no tiene un formato válido.");
+                    "El locador en la posición " + i + " no tiene un formato válido.");
             }
 
-            int porcentaje = requireInt(factura, "porcentaje", "Porcentaje de facturas");
-            BigDecimal importe = requireDecimal(factura, "importe", "Importe");
+            String etiqueta = "Locador " + (i + 1);
 
+            int porcentaje = requireInt(l, "porcentaje", "Porcentaje de " + etiqueta);
             if (porcentaje < 0 || porcentaje > PORCENTAJE_TOTAL) {
                 throw new BadRequestException(
-                    "El porcentaje de facturas[" + i + "].porcentaje debe estar entre 0 y 100.");
+                    "El porcentaje del " + etiqueta + " debe estar entre 0 y 100.");
             }
-            if (importe.signum() < 0) {
-                throw new BadRequestException(
-                    "El importe de facturas[" + i + "].importe debe ser mayor o igual a 0.");
+            total += porcentaje;
+
+            Long locadorId = isBlank(l.get("locadorId"))
+                ? null
+                : requireLongPositivo(l, "locadorId", etiqueta);
+
+            String razonSocial = null;
+            String cuit = null;
+
+            if (locadorId == null) {
+                razonSocial = requireString(l, "razonSocial", "Razón social del " + etiqueta).trim();
+                cuit = normalizarCuit(l.get("cuit"));
+
+                if (!cuits.add(cuit)) {
+                    throw new BadRequestException("El CUIT " + cuit + " está repetido en el contrato.");
+                }
+            } else if (!ids.add(locadorId)) {
+                throw new BadRequestException("El " + etiqueta + " está repetido en el contrato.");
             }
 
-            totalPorcentaje += porcentaje;
+            String cbu = blankToNull(l.get("cbu"));
+            if (cbu != null && !cbu.matches("\\d{22}")) {
+                throw new BadRequestException("El CBU del " + etiqueta + " debe tener 22 dígitos.");
+            }
+
+            result.add(new LocadorBody(
+                locadorId,
+                razonSocial,
+                cuit,
+                blankToNull(l.get("email")),
+                blankToNull(l.get("telefono")),
+                cbu,
+                porcentaje,
+                blankToNull(l.get("acreedorSapCodigo")),
+                blankToNull(l.get("cecoSap")),
+                blankToNull(l.get("divisionSap")),
+                blankToNull(l.get("cuentaGasto")),
+                blankToNull(l.get("indicadorImpuesto"))));
         }
 
-        if (totalPorcentaje != PORCENTAJE_TOTAL) {
-            throw new BadRequestException(
-                "La suma de los porcentajes de las facturas debe ser 100%.");
+        if (total != PORCENTAJE_TOTAL) {
+            throw new BadRequestException("La suma de los porcentajes de los locadores debe ser 100%.");
         }
+
+        return result;
     }
 }

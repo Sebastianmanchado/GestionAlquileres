@@ -19,9 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static com.correoargentino.sga.utils.Campos.*;
 
@@ -54,18 +57,25 @@ public class ContractService {
     // Alta
     // =====================================================
 
+    private static final BigDecimal CIEN = BigDecimal.valueOf(100);
+
+    /** Locador ya resuelto en la base (existente o recién creado). */
+    private record LocadorContrato(long locadorId, Long acreedorId, int porcentaje) {}
+
     @Transactional
     public long create(Map<String, Object> body) throws BadRequestException {
 
         requireEdit();
         ContratoValidator.validar(body);
+        List<ContratoValidator.LocadorBody> locadoresBody = ContratoValidator.locadores(body);
 
         Long indiceId = resolverIndice(body);
         Long inmuebleId = resolverInmueble(body);
-        Long locadorId = resolverLocador(body);
+        List<LocadorContrato> locadores = resolverLocadores(locadoresBody);
+        LocadorContrato principal = locadores.get(0);
 
         LocalDate inicio = asDateOrToday(body.getOrDefault("fechaInicio", LocalDate.now().toString()));
-        int cantidadFacturas = ContratoValidator.cantidadFacturas(body);
+        int cantidadFacturas = locadores.size();          // una factura planificada por locador
         LocalDate vencimiento = ContratoValidator.vencimiento(body, inicio, cantidadFacturas);
         BigDecimal deposito = ContratoValidator.deposito(body);
 
@@ -73,8 +83,8 @@ public class ContractService {
 
         DatosContrato datos = new DatosContrato(
             inmuebleId,
-            locadorId,
-            acreedorId(body, locadorId),
+            principal.locadorId(),          // ya no se guarda en contrato; el INSERT lo ignora
+            principal.acreedorId(),         // contrato.acreedor_sap_id = acreedor del primer locador
             indiceId,
             asInt(body.getOrDefault("tipoContratoId", 1)),
             inicio,
@@ -90,7 +100,7 @@ public class ContractService {
             ContractSql.INSERT_CONTRATO,
             datos.parametros(body).addValue("numero", numero));
 
-        insertarFacturasPlanificadas(contratoId, facturasPlanificadas(body));
+        insertarLocadoresYPlanificadas(contratoId, locadores, datos.importe());
         insertarValor(contratoId, inicio, datos.importe(), ORIGEN_CONTRATO, null, null);
 
         auditar(contratoId, "CREAR", "Creó el contrato " + numero, numero);
@@ -101,7 +111,7 @@ public class ContractService {
     // Edición
     // =====================================================
 
-    @Transactional
+        @Transactional
     public void update(long id, Map<String, Object> body) throws BadRequestException {
 
         requireEdit();
@@ -117,15 +127,16 @@ public class ContractService {
         }
 
         ContratoValidator.validar(body);
+        List<ContratoValidator.LocadorBody> locadoresBody = ContratoValidator.locadores(body);
 
         Long inmuebleId = resolverInmueble(body);
-        Long locadorId = resolverLocador(body);
-        List<Map<String, Object>> facturas = facturasPlanificadas(body);
+        List<LocadorContrato> locadores = resolverLocadores(locadoresBody);
+        LocadorContrato principal = locadores.get(0);
 
         DatosContrato datos = new DatosContrato(
             inmuebleId,
-            locadorId,
-            acreedorId(body, locadorId),
+            principal.locadorId(),          // ya no se guarda en contrato; el UPDATE lo ignora
+            principal.acreedorId(),         // contrato.acreedor_sap_id = acreedor del primer locador
             indiceId,
             asInt(body.get("tipoContratoId")),
             asDateOrToday(body.get("fechaInicio")),
@@ -135,13 +146,13 @@ public class ContractService {
             asDecimal(body.get("tolerancia")),
             str(body.get("periodicidad")),
             asInt(body.get("tipoComprobanteId")),
-            facturas.size());
+            locadores.size());              // una factura planificada por locador
 
         repo.jdbc().update(
             ContractSql.UPDATE_CONTRATO,
             datos.parametros(body).addValue("id", id));
 
-        reemplazarFacturasPlanificadas(id, facturas);
+        reemplazarLocadoresYPlanificadas(id, locadores, datos.importe());
         actualizarImporteVigente(id, datos.importe(), nis(before));
 
         auditar(id, "EDITAR", "Actualizó datos del contrato", nis(before));
@@ -417,22 +428,6 @@ public class ContractService {
         return inmuebleId != null ? inmuebleId : insertarInmueble(body);
     }
 
-    /** Crea el locador si vienen razonSocial + cuit; si no, exige locadorId. */
-    private Long resolverLocador(Map<String, Object> body) throws BadRequestException {
-
-        if (body.containsKey("razonSocial") && body.containsKey("cuit")) {
-            body.put("cuit", ContratoValidator.normalizarCuit(body.get("cuit")));
-            return insertarLocador(body);
-        }
-
-        Long locadorId = asLong(body.get("locadorId"));
-        if (locadorId == null) {
-            throw new BadRequestException(
-                "Debe indicar el Locador o informar la Razón Social y CUIT.");
-        }
-        return locadorId;
-    }
-
     private long insertarInmueble(Map<String, Object> body) {
 
         long inmuebleId = insertarConId(
@@ -454,83 +449,6 @@ public class ContractService {
                     .addValue("d", destinoId));
         }
         return inmuebleId;
-    }
-
-    /** El CUIT del body ya viene normalizado por resolverLocador. */
-    private long insertarLocador(Map<String, Object> body) throws BadRequestException {
-
-        String cuit = str(body.get("cuit"));
-
-        if (existe(ContractSql.LOCADORES_POR_CUIT, new MapSqlParameterSource("cuit", cuit))) {
-            throw new BadRequestException("Ya existe un locador registrado con el CUIT " + cuit + ".");
-        }
-
-        return insertarConId(
-            ContractSql.INSERT_LOCADOR,
-            new MapSqlParameterSource()
-                .addValue("razonSocial", str(body.get("razonSocial")))
-                .addValue("cuit", cuit)
-                .addValue("email", str(body.get("email")))
-                .addValue("telefono", str(body.get("telefono"))));
-    }
-
-    private Long acreedorId(Map<String, Object> body, Long locadorId) throws BadRequestException {
-        if (body.containsKey("acreedorSapCodigo")) {
-            return resolverAcreedor(blankToNull(body.get("acreedorSapCodigo")), locadorId);
-        }
-        return asLong(body.get("acreedorSapId"));
-    }
-
-    /** Busca el acreedor por código SAP; si no existe, lo crea asociado al locador. */
-    private Long resolverAcreedor(String codigo, Long locadorId) throws BadRequestException {
-
-        if (codigo == null) {
-            return null;
-        }
-
-        List<Long> ids = repo.jdbc().query(
-            ContractSql.ACREEDOR_POR_CODIGO,
-            new MapSqlParameterSource("codigo", codigo),
-            (rs, rowNum) -> rs.getLong("id"));
-
-        if (!ids.isEmpty()) {
-            return ids.get(0);
-        }
-        if (locadorId == null) {
-            throw new BadRequestException("No se puede crear el acreedor SAP sin un locador.");
-        }
-
-        return insertarConId(
-            ContractSql.INSERT_ACREEDOR,
-            new MapSqlParameterSource()
-                .addValue("codigo", codigo)
-                .addValue("locadorId", locadorId));
-    }
-
-    // =====================================================
-    // Facturas planificadas
-    // =====================================================
-
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> facturasPlanificadas(Map<String, Object> body) {
-        return (List<Map<String, Object>>) body.get("facturas_planificadas");
-    }
-
-    private void reemplazarFacturasPlanificadas(long contratoId, List<Map<String, Object>> facturas) {
-        repo.jdbc().update(ContractSql.DELETE_PLANIFICADAS, new MapSqlParameterSource("id", contratoId));
-        insertarFacturasPlanificadas(contratoId, facturas);
-    }
-
-    /** Una fila por elemento de la lista, nunca más. */
-    private void insertarFacturasPlanificadas(long contratoId, List<Map<String, Object>> facturas) {
-        for (Map<String, Object> factura : facturas) {
-            repo.jdbc().update(
-                ContractSql.INSERT_PLANIFICADA,
-                new MapSqlParameterSource()
-                    .addValue("contratoId", contratoId)
-                    .addValue("porcentaje", asInt(factura.get("porcentaje")))
-                    .addValue("monto", asDecimal(factura.get("importe"))));
-        }
     }
 
     // =====================================================
@@ -588,6 +506,165 @@ public class ContractService {
 
     private void auditar(long id, String accion, String detalle, String referencia) {
         audit.log(ENTIDAD_CONTRATO, String.valueOf(id), accion, detalle, referencia, null, null);
+    }
+
+    // =====================================================
+    // Locadores
+    // =====================================================
+
+    private List<LocadorContrato> resolverLocadores(List<ContratoValidator.LocadorBody> locadores)
+            throws BadRequestException {
+
+        List<LocadorContrato> result = new ArrayList<>();
+        Set<Long> usados = new HashSet<>();
+
+        for (ContratoValidator.LocadorBody l : locadores) {
+
+            long locadorId = l.locadorId() != null
+                ? actualizarLocadorExistente(l)
+                : crearOReutilizarLocador(l);
+
+            // p. ej. un "nuevo" cuyo CUIT ya pertenece a otro locador elegido en la lista
+            if (!usados.add(locadorId)) {
+                throw new BadRequestException("Hay un locador repetido en el contrato.");
+            }
+
+            Long acreedorId = resolverAcreedor(l.acreedorSapCodigo(), locadorId);
+            result.add(new LocadorContrato(locadorId, acreedorId, l.porcentaje()));
+        }
+
+        return result;
+    }
+
+    private long actualizarLocadorExistente(ContratoValidator.LocadorBody l) throws BadRequestException {
+
+        Integer existe = repo.jdbc().queryForObject(
+            ContractSql.LOCADOR_EXISTE,
+            new MapSqlParameterSource("id", l.locadorId()),
+            Integer.class);
+
+        if (existe == null || existe == 0) {
+            throw new BadRequestException("El locador " + l.locadorId() + " no existe.");
+        }
+
+        repo.jdbc().update(ContractSql.UPDATE_LOCADOR_SAP, sapParams(l).addValue("id", l.locadorId()));
+        return l.locadorId();
+    }
+
+    /** Si el CUIT ya existe, usa ese locador y le actualiza los datos SAP; si no, lo crea. */
+    private long crearOReutilizarLocador(ContratoValidator.LocadorBody l) {
+
+        Long existente = queryLongOrNull(
+            ContractSql.LOCADOR_ID_POR_CUIT,
+            new MapSqlParameterSource("cuit", l.cuit()));
+
+        if (existente != null) {
+            repo.jdbc().update(ContractSql.UPDATE_LOCADOR_SAP, sapParams(l).addValue("id", existente));
+            return existente;
+        }
+
+        return insertarConId(
+            ContractSql.INSERT_LOCADOR,
+            sapParams(l)
+                .addValue("razonSocial", l.razonSocial())
+                .addValue("cuit", l.cuit()));
+    }
+
+    private MapSqlParameterSource sapParams(ContratoValidator.LocadorBody l) {
+        return new MapSqlParameterSource()
+            .addValue("email", l.email())
+            .addValue("telefono", l.telefono())
+            .addValue("cbu", l.cbu())
+            .addValue("cuentaGasto", l.cuentaGasto())
+            .addValue("divisionSap", l.divisionSap())
+            .addValue("cecoSap", l.cecoSap())
+            .addValue("indicadorImpuesto", l.indicadorImpuesto());
+    }
+
+    /**
+     * Con código: lo busca y, si no existe, lo crea para el locador.
+     * Sin código: usa el primer acreedor que ya tenga el locador (o null).
+     */
+    private Long resolverAcreedor(String codigo, long locadorId) {
+
+        if (codigo == null) {
+            return queryLongOrNull(
+                ContractSql.ACREEDOR_POR_LOCADOR,
+                new MapSqlParameterSource("locadorId", locadorId));
+        }
+
+        Long id = queryLongOrNull(
+            ContractSql.ACREEDOR_POR_CODIGO,
+            new MapSqlParameterSource("codigo", codigo));
+
+        if (id != null) {
+            return id;
+        }
+
+        return insertarConId(
+            ContractSql.INSERT_ACREEDOR,
+            new MapSqlParameterSource()
+                .addValue("codigo", codigo)
+                .addValue("locadorId", locadorId));
+    }
+
+    // =====================================================
+    // contrato_locador + factura_planificada
+    // =====================================================
+
+    /**
+     * Por cada locador inserta primero contrato_locador (lo exige la FK compuesta)
+     * y después su factura planificada. La última absorbe el residuo de redondeo.
+     */
+    private void insertarLocadoresYPlanificadas(long contratoId,
+                                                List<LocadorContrato> locadores,
+                                                BigDecimal importeTotal) {
+
+        BigDecimal importe = importeTotal == null ? BigDecimal.ZERO : importeTotal;
+        BigDecimal acumulado = BigDecimal.ZERO;
+
+        for (int k = 0; k < locadores.size(); k++) {
+
+            LocadorContrato l = locadores.get(k);
+            boolean ultimo = k == locadores.size() - 1;
+
+            MapSqlParameterSource p = new MapSqlParameterSource()
+                .addValue("contratoId", contratoId)
+                .addValue("locadorId", l.locadorId());
+
+            repo.jdbc().update(ContractSql.INSERT_CONTRATO_LOCADOR, p);
+
+            BigDecimal monto = ultimo
+                ? importe.subtract(acumulado)
+                : importe.multiply(BigDecimal.valueOf(l.porcentaje()))
+                         .divide(CIEN, 2, RoundingMode.HALF_UP);
+
+            acumulado = acumulado.add(monto);
+
+            repo.jdbc().update(ContractSql.INSERT_PLANIFICADA, p
+                .addValue("porcentaje", l.porcentaje())
+                .addValue("monto", monto));
+        }
+    }
+
+    private Long queryLongOrNull(String sql, MapSqlParameterSource p) {
+        return repo.jdbc().query(sql, p, rs -> rs.next() ? rs.getLong(1) : null);
+    }
+
+    /**
+     * Borra las planificadas y los locadores del contrato (en ese orden, por la FK
+     * compuesta factura_planificada → contrato_locador) y los vuelve a insertar.
+     */
+    private void reemplazarLocadoresYPlanificadas(long contratoId,
+                                                  List<LocadorContrato> locadores,
+                                                  BigDecimal importeTotal) {
+
+        MapSqlParameterSource p = new MapSqlParameterSource("id", contratoId);
+
+        repo.jdbc().update(ContractSql.DELETE_PLANIFICADAS, p);
+        repo.jdbc().update(ContractSql.DELETE_CONTRATO_LOCADORES, p);
+
+        insertarLocadoresYPlanificadas(contratoId, locadores, importeTotal);
     }
 
     // =====================================================

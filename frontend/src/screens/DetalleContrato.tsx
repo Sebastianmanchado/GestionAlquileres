@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { useApp } from '../context';
@@ -59,7 +59,7 @@ export function DetalleContrato({ id }: { id: number }) {
         ))}
       </div>
 
-      {tab === 'general' && <General d={d} direccion={direccion} />}
+      {tab === 'general' && <General key={d.id} d={d} direccion={direccion} />}
       {tab === 'historial' && <Historial d={d} canEdit={meta.canEdit} onSaved={reload} />}
       {tab === 'facturas' && <Facturas d={d} />}
       {tab === 'cambios' && <Cambios d={d} />}
@@ -67,14 +67,18 @@ export function DetalleContrato({ id }: { id: number }) {
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function Panel({ title, extra, children }: { title: string; extra?: ReactNode; children: ReactNode }) {
   return (
     <div style={{ ...s.panel, padding: 16 }}>
-      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>{title}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>{title}</span>
+        {extra}
+      </div>
       {children}
     </div>
   );
 }
+
 function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: `1px solid ${c.line}`, fontSize: 12.5, gap: 12 }}>
@@ -92,8 +96,71 @@ function textoProximoAjuste(p: { fecha?: string; estado?: string } | null | unde
   return fecha;
 }
 
+type LocadorDetalle = {
+  id: string;
+  razonSocial: string;
+  cuit: string;
+  email: string;
+  telefono: string;
+  cbu: string;
+  acreedorSap: string;
+  cecoSap: string;
+  divisionSap: string;
+  cuentaGasto: string;
+  indicadorImpuesto: string;
+};
+
+/** Lee una clave probando camelCase, snake_case y mayúsculas/minúsculas. */
+function pick(o: any, ...keys: string[]): any {
+  if (!o) return undefined;
+  for (const k of keys) {
+    if (o[k] != null) return o[k];
+  }
+  const norm = (k: string) => k.toLowerCase().replace(/_/g, '');
+  const mapa: Record<string, any> = {};
+  Object.keys(o).forEach((k) => { mapa[norm(k)] = o[k]; });
+  for (const k of keys) {
+    const v = mapa[norm(k)];
+    if (v != null) return v;
+  }
+  return undefined;
+}
+
+function normalizarLocadores(d: Detail): LocadorDetalle[] {
+  let raw: any = pick(d, 'locadores');
+
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { raw = []; }
+  }
+  if (!Array.isArray(raw)) raw = [];
+
+  const txt = (v: any) => (v == null ? '' : String(v).trim());
+
+  return raw.map((l: any, idx: number) => ({
+    id: txt(pick(l, 'id', 'locadorId', 'locador_id') ?? idx),
+    razonSocial: txt(pick(l, 'razonSocial', 'razon_social')),
+    cuit: txt(pick(l, 'cuit')),
+    email: txt(pick(l, 'email')),
+    telefono: txt(pick(l, 'telefono')),
+    cbu: txt(pick(l, 'cbu')),
+    acreedorSap: txt(pick(l, 'acreedorSap', 'codigoSap', 'codigo_sap')),
+    cecoSap: txt(pick(l, 'cecoSap', 'ceco_sap')),
+    divisionSap: txt(pick(l, 'divisionSap', 'division_sap')),
+    cuentaGasto: txt(pick(l, 'cuentaGasto', 'cuenta_gasto')),
+    indicadorImpuesto: txt(pick(l, 'indicadorImpuesto', 'indicador_impuesto')),
+  }));
+}
+
 function General({ d, direccion }: { d: Detail; direccion: string }) {
   const est = estadoContrato(d.estadoCodigo, d.estadoNombre);
+
+  const locadores = useMemo(() => normalizarLocadores(d), [d]);
+  const [selIdx, setSelIdx] = useState(0);
+
+  // si la lista cambia (p. ej. después de un reload), no se sale del rango
+  const idx = selIdx < locadores.length ? selIdx : 0;
+  const locadorSel: LocadorDetalle | undefined = locadores[idx];
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
       <Panel title="Inmueble">
@@ -107,17 +174,53 @@ function General({ d, direccion }: { d: Detail; direccion: string }) {
         <Field label="Correo responsable" value={d.responsableEmail ?? '—'} />
         <Field label="Contacto responsable" value={d.responsableTelefono ?? '—'} />
       </Panel>
-      <Panel title="Locador">
-        <Field label="Razón social" value={d.locadorRazon} />
-        <Field label="CUIT" value={d.locadorCuit} />
-        <Field label="Acreedor SAP" value={d.acreedorSap ?? '—'} />
-        <Field label="CeCo SAP" value={d.cecoSap ?? '—'} />
-        <Field label="División SAP" value={d.divisionSap ?? '—'} />
-        <Field label="Cuenta de gasto" value={d.cuentaGasto ?? '—'} />
-        <Field label="Indicador de impuestos" value={d.indicadorImpuesto ?? '—'} />
-        <Field label="Contacto" value={d.locadorEmail ?? '—'} />
-        <Field label="Teléfono contacto" value={d.locadorTelefono ?? '—'} />
+
+      <Panel
+        title="Locadores"
+        extra={
+          <span
+            style={{
+              fontSize: 12,
+              color: c.muted,
+              background: c.fieldBg,
+              border: `1px solid ${c.border}`,
+              borderRadius: 10,
+              padding: '2px 10px',
+            }}
+          >
+            Total: <strong>{locadores.length}</strong>
+          </span>
+        }
+      >
+        <div style={{ marginBottom: 8 }}>
+          <label style={s.label}>Seleccionar locador</label>
+          <select
+            style={{ ...s.input, width: '100%' }}
+            value={locadores.length ? String(idx) : ''}
+            onChange={(e) => setSelIdx(Number(e.target.value))}
+            disabled={locadores.length === 0}
+          >
+            {locadores.length === 0 && <option value="">Sin locadores asociados</option>}
+            {locadores.map((l, i) => (
+              <option key={`${l.id}-${i}`} value={String(i)}>
+                {i + 1}. {l.razonSocial || '(sin razón social)'} · {l.cuit || 's/CUIT'}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <Field label="Razón social" value={locadorSel?.razonSocial || '—'} />
+        <Field label="CUIT" value={locadorSel?.cuit || '—'} />
+        <Field label="CBU" value={locadorSel?.cbu || '—'} />
+        <Field label="Contacto" value={locadorSel?.email || '—'} />
+        <Field label="Teléfono contacto" value={locadorSel?.telefono || '—'} />
+        <Field label="Acreedor SAP" value={locadorSel?.acreedorSap || '—'} />
+        <Field label="CeCo SAP" value={locadorSel?.cecoSap || '—'} />
+        <Field label="División SAP" value={locadorSel?.divisionSap || '—'} />
+        <Field label="Cuenta de gasto" value={locadorSel?.cuentaGasto || '—'} />
+        <Field label="Indicador de impuestos" value={locadorSel?.indicadorImpuesto || '—'} />
       </Panel>
+
       <Panel title="Condiciones del contrato">
         <Field label="Tipo de contrato" value={d.tipo} />
         <Field label="Estado" value={<Badge label={est.label} tone={est.tone} />} />
@@ -127,6 +230,7 @@ function General({ d, direccion }: { d: Detail; direccion: string }) {
         <Field label="Próximo ajuste" value={textoProximoAjuste(d.proximoAjuste)} />
         <Field label="Tolerancia de diferencia permitida" value={d.tolerancia != null ? `±${Number(d.tolerancia)}%` : '—'} />
       </Panel>
+
       <Panel title="Garantías">
         <Field label="Depósito de garantía" value={money(d.deposito)} />
         <Field label="Seguro de caución" value={d.seguro ? `Sí — Póliza ${d.seguro.poliza}` : 'No'} />
