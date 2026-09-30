@@ -31,41 +31,36 @@ public class SapAsientoService {
     private final CurrentUserProvider currentUser;
     private final TransactionTemplate tx;
     private final ZoneId zone;
-    /** Temporal para la demo: si SAP no tiene URL, igual se marcan las facturas como enviadas. */
-    private final boolean simularSinConfig;
 
     public SapAsientoService(
             SgaRepository repo,
             SapAsientoClient client,
             CurrentUserProvider currentUser,
             PlatformTransactionManager transactionManager,
-            @Value("${sga.ajustes.zone:America/Argentina/Buenos_Aires}") String zone,
-            @Value("${sga.sap.simular-sin-config:true}") boolean simularSinConfig) {
+            @Value("${sga.ajustes.zone:America/Argentina/Buenos_Aires}") String zone) {
         this.repo = repo;
         this.client = client;
         this.currentUser = currentUser;
         this.tx = new TransactionTemplate(transactionManager);
         this.zone = ZoneId.of(zone);
-        this.simularSinConfig = simularSinConfig;
     }
 
     public List<Map<String, Object>> enviar(List<Long> conciliacionIds) {
         if (!currentUser.currentRole().canEdit()) {
             throw new ForbiddenException("El rol actual no tiene permiso para enviar asientos a SAP.");
         }
-        boolean simular = simularSinConfig && !client.configurado();
-        if (!client.configurado() && !simular) {
+        if (!client.configurado()) {
             throw new SapNoConfiguradoException();
         }
 
         List<Map<String, Object>> resultados = new ArrayList<>();
         for (Long conciliacionId : conciliacionIds) {
-            resultados.addAll(enviarConciliacion(conciliacionId, simular));
+            resultados.addAll(enviarConciliacion(conciliacionId));
         }
         return resultados;
     }
 
-    private List<Map<String, Object>> enviarConciliacion(long conciliacionId, boolean simular) {
+    private List<Map<String, Object>> enviarConciliacion(long conciliacionId) {
         Map<String, Object> cabecera = repo.queryOne("""
             SELECT co.id, co.estado AS estadoCodigo, i.nis
               FROM conciliacion co
@@ -124,32 +119,20 @@ public class SapAsientoService {
 
         List<Map<String, Object>> resultados = new ArrayList<>();
         for (Map<String, Object> factura : facturas) {
-            resultados.add(simular
-                    ? simularFactura(conciliacionId, nis, factura)
-                    : enviarFactura(conciliacionId, nis, factura));
+            resultados.add(enviarFactura(conciliacionId, nis, factura));
         }
         return resultados;
-    }
-
-    private Map<String, Object> simularFactura(long conciliacionId, String nis, Map<String, Object> factura) {
-        long facturaId = ((Number) factura.get("facturaId")).longValue();
-        String comprobante = texto(factura.get("numero"));
-        Integer yaEnviado = asientoEnviado(facturaId);
-        if (yaEnviado != null) {
-            return resultado(conciliacionId, nis, facturaId, comprobante, false, yaEnviado,
-                    "La factura ya fue enviada a SAP (asiento " + yaEnviado + ").");
-        }
-        int numero = siguienteNumero();
-        guardar(numero, facturaId, conciliacionId, "<simulado/>", "ENVIADO",
-                "SIMULADO: SAP no está configurado. El asiento no se envió al WebService.");
-        return resultado(conciliacionId, nis, facturaId, comprobante, true, numero, null);
     }
 
     private Map<String, Object> enviarFactura(long conciliacionId, String nis, Map<String, Object> factura) {
         long facturaId = ((Number) factura.get("facturaId")).longValue();
         String comprobante = texto(factura.get("numero"));
 
-        Integer yaEnviado = asientoEnviado(facturaId);
+        Integer yaEnviado = repo.jdbc().query("""
+            SELECT TOP 1 numero
+              FROM asiento_sap
+             WHERE factura_id = :id AND estado = N'ENVIADO'
+            """, new MapSqlParameterSource("id", facturaId), rs -> rs.next() ? rs.getInt(1) : null);
         if (yaEnviado != null) {
             return resultado(conciliacionId, nis, facturaId, comprobante, false, yaEnviado,
                     "La factura ya fue enviada a SAP (asiento " + yaEnviado + ").");
@@ -218,14 +201,6 @@ public class SapAsientoService {
             guardar(numero, facturaId, conciliacionId, xml, "ERROR", mensaje);
             return resultado(conciliacionId, nis, facturaId, comprobante, false, numero, mensaje);
         }
-    }
-
-    private Integer asientoEnviado(long facturaId) {
-        return repo.jdbc().query("""
-            SELECT TOP 1 numero
-              FROM asiento_sap
-             WHERE factura_id = :id AND estado = N'ENVIADO'
-            """, new MapSqlParameterSource("id", facturaId), rs -> rs.next() ? rs.getInt(1) : null);
     }
 
     private String faltantes(Map<String, Object> factura) {

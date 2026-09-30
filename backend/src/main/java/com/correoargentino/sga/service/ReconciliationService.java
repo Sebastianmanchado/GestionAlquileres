@@ -81,28 +81,7 @@ public class ReconciliationService {
                     WHERE cf.conciliacion_id = co.id
                     ORDER BY f.id
                     FOR JSON PATH
-                ) AS facturasJson,
-
-                CASE
-                    WHEN EXISTS (
-                        SELECT 1
-                          FROM conciliacion_factura cf
-                         WHERE cf.conciliacion_id = co.id
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1
-                          FROM conciliacion_factura cf
-                         WHERE cf.conciliacion_id = co.id
-                           AND NOT EXISTS (
-                               SELECT 1
-                                 FROM asiento_sap a
-                                WHERE a.factura_id = cf.factura_id
-                                  AND a.estado = N'ENVIADO'
-                           )
-                    )
-                    THEN 1
-                    ELSE 0
-                END AS enviadoSap
+                ) AS facturasJson
 
             FROM conciliacion co
             INNER JOIN contrato c

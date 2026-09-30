@@ -21,23 +21,9 @@ class AjusteIndiceCalculoTest {
     }
 
     @Test
-    void ipcTrimestralComponeLosTresMeses() {
-        TreeMap<LocalDate, BigDecimal> variaciones = new TreeMap<>();
-        variaciones.put(LocalDate.of(2026, 1, 1), new BigDecimal("2.0"));
-        variaciones.put(LocalDate.of(2026, 2, 1), new BigDecimal("3.0"));
-        variaciones.put(LocalDate.of(2026, 3, 1), new BigDecimal("1.0"));
-
-        assertEquals(new BigDecimal("1.0611"),
-                AjusteIndiceCalculo.coeficientePorVariacionMensual(variaciones, LocalDate.of(2026, 1, 15), 3));
-    }
-
-    @Test
-    void ipcNoAjustaSiFaltaUnMesDelPeriodo() {
-        TreeMap<LocalDate, BigDecimal> variaciones = new TreeMap<>();
-        variaciones.put(LocalDate.of(2026, 1, 1), new BigDecimal("2.0"));
-        variaciones.put(LocalDate.of(2026, 3, 1), new BigDecimal("1.0"));
-
-        assertNull(AjusteIndiceCalculo.coeficientePorVariacionMensual(variaciones, LocalDate.of(2026, 1, 1), 3));
+    void ipcTomaElMesAnterior() {
+        assertEquals(LocalDate.of(2026, 3, 1), AjusteIndiceCalculo.mesIndiceIpc(LocalDate.of(2026, 4, 1)));
+        assertEquals(LocalDate.of(2025, 12, 1), AjusteIndiceCalculo.mesIndiceIpc(LocalDate.of(2026, 1, 15)));
     }
 
     @Test

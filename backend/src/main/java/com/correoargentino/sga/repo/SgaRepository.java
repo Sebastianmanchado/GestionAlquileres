@@ -3,6 +3,7 @@ package com.correoargentino.sga.repo;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
@@ -79,11 +80,11 @@ public class SgaRepository {
         return v;
     }
 
-    public List<Map<String, Object>> query(String sql, MapSqlParameterSource params) {
+    public List<Map<String, Object>> query(String sql, SqlParameterSource params) {
         return jdbc.query(sql, params, ROW);
     }
 
-    public Map<String, Object> queryOne(String sql, MapSqlParameterSource params) {
+    public Map<String, Object> queryOne(String sql, SqlParameterSource params) {
         List<Map<String, Object>> list = query(sql, params);
         return list.isEmpty() ? null : list.get(0);
     }
