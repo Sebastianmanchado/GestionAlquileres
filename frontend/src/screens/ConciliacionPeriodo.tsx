@@ -4,6 +4,12 @@ import { useApp } from '../context';
 import { c, s } from '../theme';
 import { Badge } from '../components/Badge';
 import { money, periodo as fmtPeriodo, estadoConciliacion } from '../format';
+
+const ANCHO_OK = 88;
+
+function mismoAncho(codigo: string) {
+  return codigo === 'OK' || codigo === 'OK_CON_DIF' || codigo === 'CON_DIFERENCIA' || codigo === 'SIN_FACTURA';
+}
 import { useAsync } from '../hooks';
 import { Loading, ErrorBox } from './Dashboard';
 
@@ -366,7 +372,10 @@ export function ConciliacionPeriodo() {
                 cursor: 'pointer',
                 display: 'inline-flex',
                 gap: 6,
-                alignItems: 'center'
+                alignItems: 'center',
+                boxSizing: 'border-box',
+                minWidth: mismoAncho(f.codigo) ? ANCHO_OK : undefined,
+                justifyContent: mismoAncho(f.codigo) ? 'center' : undefined,
               }}
             >
               <span
@@ -603,17 +612,21 @@ export function ConciliacionPeriodo() {
                 <Badge
                   label={info.label}
                   tone={info.tone}
+                  minWidth={mismoAncho(r.estadoCodigo) ? ANCHO_OK : undefined}
                 />
 
                 {puedeEnviar && (
                   <button
                     style={{
                       ...s.btnPrimary,
-                      padding:
-                        '5px 10px',
+                      height: 26,
+                      boxSizing: 'border-box',
+                      padding: '0 10px',
                       fontSize: 11.5,
-                      display: "flex",
-                      justifyContent: "center"
+                      lineHeight: 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -772,7 +785,11 @@ export function ConciliacionPeriodo() {
                           fontSize: 13
                         }}
                       >
-                        <Badge label={info.label} tone={info.tone} />
+                        <Badge
+                          label={info.label}
+                          tone={info.tone}
+                          minWidth={mismoAncho(r.estadoCodigo) ? ANCHO_OK : undefined}
+                        />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontWeight: 700 }}>NIS {r.nis}</div>
                           <div style={{ fontSize: 12, color: c.muted, marginTop: 2 }}>
