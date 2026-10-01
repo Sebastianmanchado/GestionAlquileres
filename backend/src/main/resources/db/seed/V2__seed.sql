@@ -95,7 +95,9 @@ INSERT INTO usuario (username, nombre, email, activo) VALUES
 INSERT INTO usuario_rol_cache (usuario_id, rol) VALUES
  (1, N'ANALISTA'), (2, N'SUPERVISOR'), (3, N'ANALISTA'), (4, N'AUDITOR'), (5, N'SISTEMA');
 
-/* ---------- Locadores ---------- */
+/* ---------- Locadores ----------
+   indicador_impuesto: C1 -> Factura A | C5 -> Factura C
+   Los locadores 9, 10 y 11 (contratos extra) son C1. */
 INSERT INTO locador (
     tipo_persona, razon_social, cuit, email, telefono, cbu,
     cuenta_gasto, division_sap, ceco_sap, indicador_impuesto, activo
@@ -109,7 +111,7 @@ INSERT INTO locador (
  (N'FISICA',   N'Gómez, Marta Susana',        '27284561238', N'marta.gomez@mail.com',   N'0341 455-6677', '0850099944000099887766', '510803', '4957', '53025958', 'C5', 1),
  (N'JURIDICA', N'Litoral Propiedades SRL',    '30709182734', N'ventas@litoralprop.com', N'0376 443-2211', '0110099922000033445566', '510802', '4958', '53025959', 'C1', 1),
  (N'JURIDICA', N'razon prueba 1',             '11111111111', N'info@grupocuyo.com',     N'0261 429-1010', '0290099911000011223344', '510802', '4952', '53025960', 'C1', 1),
- (N'FISICA',   N'razon prueba 2',             '22222222222', N'marta.gomez@mail.com',   N'0341 455-6677', '0850099944000099887766', '510803', '4953', '53025961', 'C5', 1),
+ (N'FISICA',   N'razon prueba 2',             '22222222222', N'marta.gomez@mail.com',   N'0341 455-6677', '0850099944000099887766', '510803', '4953', '53025961', 'C1', 1),
  (N'JURIDICA', N'razon prueba 3',             '33333333333', N'ventas@litoralprop.com', N'0376 443-2211', '0110099922000033445566', '510804', '4954', '53025962', 'C1', 1);
 
 INSERT INTO acreedor_sap (codigo_sap, locador_id, descripcion) VALUES
@@ -322,6 +324,7 @@ END
 /* =========================================================================
    2) CONTRATOS B0601 / B0602 / B0603  -  SIN FACTURAS REALES
       (esperan 1 factura planificada del 100%)
+      Locadores 9, 10 y 11, todos con indicador_impuesto C1 (Factura A)
    ========================================================================= */
 DECLARE @j INT = 0;
 
@@ -387,7 +390,8 @@ BEGIN
 
     SET @acreedorIdExtra = @locadorIdExtra;
 
-        SET @acreedorIdExtra = @locadorIdExtra;
+    -- los contratos extra deben tener locadores C1 (Factura A)
+    UPDATE locador SET indicador_impuesto = 'C1' WHERE id = @locadorIdExtra;
 
     INSERT INTO contrato (
         numero, inmueble_id, acreedor_sap_id, tipo_contrato_id,
@@ -459,6 +463,7 @@ DECLARE @rpaJunio BIGINT = (
       @mesesHistoria = 1 -> solo 2026-06 (cantidad exacta por contrato)
       @mesesHistoria = 3 -> agrega 2026-04 y 2026-05 como historia
       La factura k de cada período la emite el locador de la planificada k.
+      tipo_factura sale del indicador del locador: C1 -> A | C5 -> C
    ========================================================================= */
 DECLARE @mesesHistoria INT = 1;          -- <<< CAMBIAR A 3 SI QUERES HISTORIA
 
@@ -474,14 +479,15 @@ VALUES
 
 DELETE FROM @periodos WHERE orden > @mesesHistoria;
 
-DECLARE @c      BIGINT;
-DECLARE @imp    DECIMAL(18,2);
-DECLARE @cuit   CHAR(11);
-DECLARE @razon  NVARCHAR(200);
-DECLARE @inm    BIGINT;
-DECLARE @pv     INT = 3;
-DECLARE @cat    INT;
-DECLARE @rownum INT = 0;
+DECLARE @c           BIGINT;
+DECLARE @imp         DECIMAL(18,2);
+DECLARE @cuit        CHAR(11);
+DECLARE @razon       NVARCHAR(200);
+DECLARE @tipoFactura NVARCHAR(3);
+DECLARE @inm         BIGINT;
+DECLARE @pv          INT = 3;
+DECLARE @cat         INT;
+DECLARE @rownum      INT = 0;
 
 DECLARE @cantFact   INT;
 DECLARE @k          INT;
@@ -569,11 +575,17 @@ BEGIN
             WHILE @k <= @cantFact
             BEGIN
                 -- emisor = locador de la factura planificada k del contrato
-                SET @cuit  = NULL;
-                SET @razon = NULL;
+                SET @cuit        = NULL;
+                SET @razon       = NULL;
+                SET @tipoFactura = NULL;
 
-                SELECT @cuit  = lo.cuit,
-                       @razon = lo.razon_social
+                SELECT @cuit        = lo.cuit,
+                       @razon       = lo.razon_social,
+                       @tipoFactura = CASE UPPER(LTRIM(RTRIM(lo.indicador_impuesto)))
+                                          WHEN 'C1' THEN N'A'
+                                          WHEN 'C5' THEN N'C'
+                                          ELSE NULL
+                                      END
                 FROM (
                     SELECT fp.locador_id,
                            ROW_NUMBER() OVER (ORDER BY fp.id) AS rn
@@ -605,7 +617,7 @@ BEGIN
                     tipo_comprobante_id, punto_venta, numero_comprobante,
                     fecha_emision, periodo_facturado,
                     importe_neto, importe_iva, importe_total,
-                    cae, estado, origen, rpa_ejecucion_id
+                    cae, estado, origen, rpa_ejecucion_id, tipo_factura
                 )
                 VALUES (
                     @c, @inm, @cuit, @razon, @tipoComp, @pv,
@@ -613,7 +625,7 @@ BEGIN
                     @fechaEmi, @periodo,
                     @neto, @impFact - @neto, @impFact,
                     N'7' + CAST(1234567890000 + @seq AS NVARCHAR(20)),
-                    @estadoFac, N'RPA', @rpaId
+                    @estadoFac, N'RPA', @rpaId, @tipoFactura
                 );
 
                 SET @k = @k + 1;
@@ -632,19 +644,20 @@ DEALLOCATE cur;
 
 /* =========================================================================
    5) FACTURAS SIN ASIGNAR (bandeja)  -  contrato_id NULL
+      tipo_factura coincide con el indicador del locador de ese CUIT
    ========================================================================= */
 INSERT INTO factura (
     cuit_emisor, razon_social, tipo_comprobante_id, punto_venta,
     numero_comprobante, fecha_emision, periodo_facturado,
-    importe_neto, importe_iva, importe_total, estado, origen, rpa_ejecucion_id
+    importe_neto, importe_iva, importe_total, estado, origen, rpa_ejecucion_id, tipo_factura
 )
 VALUES
- ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047989', '2026-05-04','2026-05-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('30685412309', N'Inversiones del Sur SA',    1, 1, N'0001-00012044', '2026-06-06','2026-06-01', 340495.87, 71504.13, 412000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('20259876541', N'Pérez Carlos Alberto',      2, 2, N'0002-00098231', '2026-06-04','2026-06-01', 239256.20, 50243.80, 289500.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('30687412309', N'Fideicomiso Norte',         1, 4, N'0004-00003321', '2026-05-09','2026-05-01', 414297.52, 87002.48, 501300.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('33710293845', N'Grupo Inmobiliario Cuyo SA',1, 1, N'0001-00012099', '2026-06-07','2026-06-01', 162809.92, 34190.08, 197000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio);
+ ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047989', '2026-05-04','2026-05-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('30685412309', N'Inversiones del Sur SA',    1, 1, N'0001-00012044', '2026-06-06','2026-06-01', 340495.87, 71504.13, 412000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('20259876541', N'Pérez Carlos Alberto',      2, 2, N'0002-00098231', '2026-06-04','2026-06-01', 239256.20, 50243.80, 289500.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'C'),
+ ('30687412309', N'Fideicomiso Norte',         1, 4, N'0004-00003321', '2026-05-09','2026-05-01', 414297.52, 87002.48, 501300.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('33710293845', N'Grupo Inmobiliario Cuyo SA',1, 1, N'0001-00012099', '2026-06-07','2026-06-01', 162809.92, 34190.08, 197000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A');
 
 /* =========================================================================
    6) CONCILIACION DEL PERIODO 2026-06

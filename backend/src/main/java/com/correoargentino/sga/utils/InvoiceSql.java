@@ -8,7 +8,7 @@ public final class InvoiceSql {
         SELECT
             id,
             contrato_id,
-            cuit_locador,
+            locador_id,
             porcentaje_esperado,
             monto_esperado,
             estado
@@ -35,8 +35,9 @@ public final class InvoiceSql {
                 i.nis,
                 i.denominacion AS sucursal,
                 i.responsable AS responsable,
-                lo.cuit AS locadorCuit,
+                RTRIM(lo.cuit) AS locadorCuit,
                 lo.razon_social AS locadorRazon,
+                lo.id AS locadorId,
                 (
                     SELECT TOP 1 cv.importe_mensual
                     FROM contrato_valor cv
@@ -47,12 +48,14 @@ public final class InvoiceSql {
             FROM contrato c
             JOIN inmueble i
                 ON i.id = c.inmueble_id
+            JOIN contrato_locador cl
+                ON cl.contrato_id = c.id
             JOIN locador lo
-                ON lo.id = c.locador_id
+                ON lo.id = cl.locador_id
             JOIN estado_contrato e
                 ON e.id = c.estado_contrato_id
             WHERE %s e.codigo <> 'RESCINDIDO'
-            ORDER BY i.nis
+            ORDER BY i.nis, lo.razon_social
             """.formatted(top, filtroCuit);
     }
 
@@ -90,7 +93,8 @@ public final class InvoiceSql {
             moneda,
             estado,
             origen,
-            observaciones
+            observaciones,
+            tipo_factura
         )
         VALUES (
             :cuit,
@@ -108,7 +112,8 @@ public final class InvoiceSql {
             :moneda,
             'SIN_ASIGNAR',
             'MANUAL',
-            :obs
+            :obs,
+            :tipo_factura
         )
         """;
 
@@ -123,7 +128,8 @@ public final class InvoiceSql {
             importe_iva = :iva,
             periodo_facturado = :periodo,
             fecha_emision = :fechaEmision,
-            observaciones = :obs
+            observaciones = :obs,
+            tipo_factura = :tipo_factura
         WHERE id = :id
         """;
 
@@ -134,11 +140,21 @@ public final class InvoiceSql {
         """;
 
     public static final String CONTRATO_VIGENTE_DEL_LOCADOR = """
-        SELECT id
-        FROM contrato
-        WHERE locador_id = :locadorId
-        AND :periodo >= fecha_inicio
-        AND :periodo <= fecha_vencimiento
+    SELECT c.id
+      FROM contrato c
+      JOIN contrato_locador cl ON cl.contrato_id = c.id
+     WHERE cl.locador_id = :locadorId
+       AND :periodo >= c.fecha_inicio
+       AND :periodo <= c.fecha_vencimiento
+    """;
+
+    /** Locadores del contrato con su indicador de impuestos. */
+    public static final String LOCADORES_DEL_CONTRATO = """
+        SELECT lo.id,
+               lo.indicador_impuesto AS indicadorImpuesto
+          FROM contrato_locador cl
+          JOIN locador lo ON lo.id = cl.locador_id
+         WHERE cl.contrato_id = :contratoId
         """;
 
     public static final String CONTRATO_CON_INMUEBLE = """

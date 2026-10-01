@@ -9,6 +9,7 @@ public record FacturaValidada(
     String nis,
     String razonSocial,
     String comprobante,
+    String tipoFactura,
     String observaciones,
     BigDecimal total,
     BigDecimal neto,

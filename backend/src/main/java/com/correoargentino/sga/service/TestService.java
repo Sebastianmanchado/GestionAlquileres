@@ -54,6 +54,11 @@ public class TestService {
         );
 
         body.put(
+            "tipo_factura", 
+            comprobante.get("tipo")
+        );
+
+        body.put(
             "observaciones",
             "TEST - Proveedor nuevo B0501"
         );

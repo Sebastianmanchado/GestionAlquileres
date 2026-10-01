@@ -8,6 +8,7 @@ import { Loading } from './Dashboard';
 type Cat = any;
 
 type LocadorForm = {
+  uid: string;                // id interno de la tarjeta (no se envía al backend)
   numero: number;
   locadorId: string;          // id de un locador existente ('' si es nuevo)
   razonSocial: string;        // solo si es nuevo
@@ -23,8 +24,11 @@ type LocadorForm = {
   indicadorImpuesto: string;
 };
 
+let locadorSeq = 0;
+
 function nuevoLocador(numero: number, porcentaje: number): LocadorForm {
   return {
+    uid: `loc-${++locadorSeq}`,
     numero,
     locadorId: '',
     razonSocial: '',
@@ -41,17 +45,47 @@ function nuevoLocador(numero: number, porcentaje: number): LocadorForm {
   };
 }
 
+/** Campos del locador que vienen de la base y se bloquean cuando es existente. */
+const CAMPOS_LOCADOR_VACIOS = {
+  razonSocial: '',
+  cuit: '',
+  email: '',
+  telefono: '',
+  cbu: '',
+  acreedorSapCodigo: '',
+  cecoSap: '',
+  divisionSap: '',
+  cuentaGasto: '',
+  indicadorImpuesto: '',
+};
+
+/** Convierte un locador del catálogo (o del detalle) en los campos del form. */
+function datosDeLocador(l: any): Partial<LocadorForm> {
+  const txt = (v: any) => (v == null ? '' : String(v).trim());
+  return {
+    razonSocial: txt(l?.razonSocial ?? l?.razon_social),
+    cuit: txt(l?.cuit),
+    email: txt(l?.email),
+    telefono: txt(l?.telefono),
+    cbu: txt(l?.cbu),
+    acreedorSapCodigo: txt(l?.acreedorSap ?? l?.codigoSap ?? l?.codigo_sap),
+    cecoSap: txt(l?.cecoSap ?? l?.ceco_sap),
+    divisionSap: txt(l?.divisionSap ?? l?.division_sap),
+    cuentaGasto: txt(l?.cuentaGasto ?? l?.cuenta_gasto),
+    indicadorImpuesto: txt(l?.indicadorImpuesto ?? l?.indicador_impuesto),
+  };
+}
+
 export function FormContrato({ id }: { id?: number }) {
   const { navigate, meta } = useApp();
   const editing = id != null;
 
   const [cat, setCat] = useState<Cat | null>(null);
   const [open, setOpen] = useState<string | null>('inmueble');
-  const [form, setForm] = useState<Record<string, any>>({
+    const [form, setForm] = useState<Record<string, any>>({
     periodicidad: 'TRIMESTRAL',
     tipoContratoId: 1,
     tipoFacturacion: 'mensual',
-    cantidad_locadores: 1,
     locadores: [nuevoLocador(1, 100)],
   });
   const [saving, setSaving] = useState(false);
@@ -97,15 +131,6 @@ export function FormContrato({ id }: { id?: number }) {
     );
   }
 
-  /** Genera N locadores con los porcentajes repartidos y conserva los que ya estaban cargados. */
-  function regenerarLocadores(cantidad: number, actuales: LocadorForm[]): LocadorForm[] {
-    return generarPorcentajes(cantidad).map((porcentaje, index) => ({
-      ...(actuales[index] ?? nuevoLocador(index + 1, porcentaje)),
-      numero: index + 1,
-      porcentaje,
-    }));
-  }
-
   useEffect(() => {
     api.get<Cat>('/catalogs').then(setCat);
   }, []);
@@ -119,19 +144,9 @@ export function FormContrato({ id }: { id?: number }) {
       const locs: LocadorForm[] = (d.locadores ?? []).map((l: any, index: number) => {
         const fp = plan.find((p) => String(p.locadorId) === String(l.id));
         return {
-          numero: index + 1,
+          ...nuevoLocador(index + 1, Number(fp?.porcentaje ?? 0)),
+          ...datosDeLocador(l),
           locadorId: String(l.id),
-          razonSocial: '',
-          cuit: '',
-          email: l.email ?? '',
-          telefono: l.telefono ?? '',
-          cbu: l.cbu ?? '',
-          porcentaje: Number(fp?.porcentaje ?? 0),
-          acreedorSapCodigo: l.acreedorSap ?? '',
-          cecoSap: l.cecoSap ?? '',
-          divisionSap: l.divisionSap ?? '',
-          cuentaGasto: l.cuentaGasto ?? '',
-          indicadorImpuesto: l.indicadorImpuesto ?? '',
         };
       });
 
@@ -290,10 +305,26 @@ export function FormContrato({ id }: { id?: number }) {
     });
   };
 
-  const sumaPct = (form.locadores ?? []).reduce(
-    (t: number, l: LocadorForm) => t + (Number(l.porcentaje) || 0),
-    0
-  );
+  /** Renumera las tarjetas y reparte los porcentajes (1 → 100, 2 → 50/50, 3 → 34/33/33). */
+  const repartir = (locs: LocadorForm[]): LocadorForm[] => {
+    const pcts = generarPorcentajes(locs.length);
+    return locs.map((l, i) => ({ ...l, numero: i + 1, porcentaje: pcts[i] }));
+  };
+
+  const agregarLocador = () => {
+    setForm((f) => ({
+      ...f,
+      locadores: repartir([...(f.locadores ?? []), nuevoLocador(0, 0)]),
+    }));
+  };
+
+  const quitarLocador = (index: number) => {
+    setForm((f) => ({
+      ...f,
+      locadores: repartir((f.locadores ?? []).filter((_: LocadorForm, i: number) => i !== index)),
+    }));
+  };
+
 
 async function save() {
   setSaving(true);
@@ -675,43 +706,11 @@ async function save() {
         </>
       ),
     },
-    {
+        {
       key: 'locador',
       titulo: 'Locador',
       body: (
         <>
-          <F label="Cantidad de locadores">
-            <input
-              type="number"
-              min="1"
-              style={s.input}
-              value={form.cantidad_locadores ?? 1}
-              onChange={(e) => {
-                const n = Number.parseInt(e.target.value || '1', 10);
-                const cantidad = Number.isNaN(n) ? 1 : Math.max(1, n);
-
-                setForm((f) => ({
-                  ...f,
-                  cantidad_locadores: cantidad,
-                  locadores: regenerarLocadores(cantidad, f.locadores ?? []),
-                }));
-              }}
-            />
-          </F>
-
-          <F label="Suma de porcentajes">
-            <input
-              style={{
-                ...s.input,
-                ...lockedInput,
-                fontWeight: 600,
-                color: sumaPct === 100 ? c.green : c.danger,
-              }}
-              value={`${sumaPct}%`}
-              disabled
-            />
-          </F>
-
           {(form.locadores ?? []).map((loc: LocadorForm, index: number) => {
             const importe =
               (Number(form.importeTotal) || 0) *
@@ -719,10 +718,12 @@ async function save() {
               100;
 
             const existente = !!loc.locadorId;
+            const unico = (form.locadores ?? []).length <= 1;
+            const estilo = { ...s.input, ...(existente ? lockedInput : {}) };
 
             return (
               <div
-                key={loc.numero}
+                key={loc.uid}
                 style={{
                   gridColumn: '1 / -1',
                   border: `1px solid ${c.line}`,
@@ -733,8 +734,38 @@ async function save() {
                   gap: 12,
                 }}
               >
-                <div style={{ gridColumn: '1 / -1', fontWeight: 700, fontSize: 12.5 }}>
-                  Locador {loc.numero}
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 12.5 }}>
+                    Locador {loc.numero}
+                    {existente && (
+                      <span style={{ fontWeight: 400, color: c.muted, marginLeft: 8 }}>
+                        · existente (solo lectura)
+                      </span>
+                    )}
+                  </span>
+
+                  <button
+                    type="button"
+                    style={{
+                      ...s.btn,
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      opacity: unico ? 0.5 : 1,
+                      cursor: unico ? 'not-allowed' : 'pointer',
+                    }}
+                    disabled={unico}
+                    title={unico ? 'El contrato debe tener al menos un locador' : 'Quitar este locador'}
+                    onClick={() => quitarLocador(index)}
+                  >
+                    ✕ Cancelar
+                  </button>
                 </div>
 
                 <F label="Locador existente" span={2}>
@@ -743,45 +774,51 @@ async function save() {
                     value={loc.locadorId ?? ''}
                     onChange={(e) => {
                       const value = e.target.value;
+
+                      // sin selección: se vacía y se habilita para cargar uno nuevo
                       if (!value) {
-                        setLocador(index, { locadorId: '' });
+                        setLocador(index, { locadorId: '', ...CAMPOS_LOCADOR_VACIOS });
                         return;
                       }
 
-                      const cl = cat.locadores.find((x: any) => String(x.id) === value) ?? {};
+                      const cl = cat.locadores.find((x: any) => String(x.id) === value);
                       setLocador(index, {
+                        ...CAMPOS_LOCADOR_VACIOS,
+                        ...datosDeLocador(cl),
                         locadorId: value,
-                        razonSocial: '',
-                        cuit: '',
-                        email: cl.email ?? '',
-                        telefono: cl.telefono ?? '',
-                        cbu: cl.cbu ?? '',
-                        acreedorSapCodigo: cl.acreedorSap ?? loc.acreedorSapCodigo,
-                        cecoSap: cl.cecoSap ?? loc.cecoSap,
-                        divisionSap: cl.divisionSap ?? loc.divisionSap,
-                        cuentaGasto: cl.cuentaGasto ?? loc.cuentaGasto,
-                        indicadorImpuesto: cl.indicadorImpuesto ?? loc.indicadorImpuesto,
                       });
                     }}
                   >
-                    {/* ...options sin cambios... */}
+                    <option value="">Seleccionar locador existente</option>
+
+                    {cat.locadores.map((l: any) => {
+                      const usadoEnOtro = (form.locadores ?? []).some(
+                        (o: LocadorForm, j: number) =>
+                          j !== index && String(o.locadorId) === String(l.id)
+                      );
+
+                      return (
+                        <option key={l.id} value={l.id} disabled={usadoEnOtro}>
+                          {l.razonSocial} · {String(l.cuit ?? '').trim()}
+                        </option>
+                      );
+                    })}
                   </select>
                 </F>
 
-
-                <F label="Razón social (nuevo)">
+                <F label="Razón social">
                   <input
-                    style={{ ...s.input, ...(existente ? lockedInput : {}) }}
+                    style={estilo}
                     value={loc.razonSocial ?? ''}
                     disabled={existente}
                     onChange={(e) => setLocador(index, { razonSocial: e.target.value })}
-                    placeholder="Sólo si es un locador nuevo"
+                    placeholder="Razón social del locador nuevo"
                   />
                 </F>
 
-                <F label="CUIT (nuevo)">
+                <F label="CUIT">
                   <input
-                    style={{ ...s.input, ...(existente ? lockedInput : {}) }}
+                    style={estilo}
                     value={loc.cuit ?? ''}
                     disabled={existente}
                     onChange={(e) => setLocador(index, { cuit: e.target.value })}
@@ -789,11 +826,12 @@ async function save() {
                   />
                 </F>
 
-                                <F label="Contacto (mail)">
+                <F label="Contacto (mail)">
                   <input
                     type="email"
-                    style={s.input}
+                    style={estilo}
                     value={loc.email ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { email: e.target.value })}
                     placeholder="contacto@empresa.com"
                   />
@@ -801,8 +839,9 @@ async function save() {
 
                 <F label="Teléfono contacto">
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.telefono ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { telefono: e.target.value })}
                     placeholder="011 4555-2310"
                   />
@@ -810,9 +849,10 @@ async function save() {
 
                 <F label="CBU" span={2}>
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.cbu ?? ''}
                     maxLength={22}
+                    disabled={existente}
                     onChange={(e) =>
                       setLocador(index, { cbu: e.target.value.replace(/\D/g, '') })
                     }
@@ -822,8 +862,9 @@ async function save() {
 
                 <F label="Acreedor SAP">
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.acreedorSapCodigo ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { acreedorSapCodigo: e.target.value })}
                     placeholder="A00822"
                   />
@@ -831,8 +872,9 @@ async function save() {
 
                 <F label="CeCo SAP">
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.cecoSap ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { cecoSap: e.target.value })}
                     placeholder="53025952"
                   />
@@ -840,8 +882,9 @@ async function save() {
 
                 <F label="División SAP">
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.divisionSap ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { divisionSap: e.target.value })}
                     placeholder="4952"
                   />
@@ -849,8 +892,9 @@ async function save() {
 
                 <F label="Cuenta de gasto">
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.cuentaGasto ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { cuentaGasto: e.target.value })}
                     placeholder="510802"
                   />
@@ -858,8 +902,9 @@ async function save() {
 
                 <F label="Indicador de impuestos">
                   <input
-                    style={s.input}
+                    style={estilo}
                     value={loc.indicadorImpuesto ?? ''}
+                    disabled={existente}
                     onChange={(e) => setLocador(index, { indicadorImpuesto: e.target.value })}
                     placeholder="C1"
                   />
@@ -890,6 +935,26 @@ async function save() {
               </div>
             );
           })}
+          
+          <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center' }}>
+            <button
+              type="button"
+              style={{
+                ...s.btn,
+                width: '10%',
+                borderStyle: 'dashed',
+                fontSize: 18,
+                fontWeight: 700,
+                padding: '6px 0',
+                color:'white',
+                backgroundColor: "#008CBA"
+              }}
+              title="Agregar locador"
+              onClick={agregarLocador}
+            >
+              +
+            </button>
+          </div>
         </>
       ),
     },

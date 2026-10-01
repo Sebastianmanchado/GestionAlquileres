@@ -17,6 +17,9 @@ import com.correoargentino.sga.utils.InvoiceSql;
 import com.correoargentino.sga.web.ForbiddenException;
 import com.correoargentino.sga.web.NotFoundException;
 
+import static com.correoargentino.sga.utils.Campos.asLong;
+import static com.correoargentino.sga.utils.Campos.str;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -159,6 +162,7 @@ public class InvoiceService {
             .addValue("iva", f.iva())
             .addValue("periodo", f.periodo())
             .addValue("fechaEmision", f.fechaEmision())
+            .addValue("tipo_factura", f.tipoFactura())
             .addValue("obs", f.observaciones());
     }
 
@@ -166,25 +170,76 @@ public class InvoiceService {
     // Auto-asignación (compartida por create y update)
     // =====================================================
 
-    /** Asigna la factura si hay exactamente un locador y un contrato vigente. */
     private boolean autoAsignar(long facturaId, FacturaValidada factura)
             throws BadRequestException {
 
+        // 1) locador emisor por cuit_emisor
+        Optional<Long> locadorId = unicoId(
+            InvoiceSql.LOCADOR_POR_CUIT,
+            new MapSqlParameterSource("cuit", factura.cuit().trim()));
+
+        if (locadorId.isEmpty()) {
+            return false;
+        }
+
         Optional<Long> contratoId = unicoId(
-                InvoiceSql.LOCADOR_POR_CUIT,
-                new MapSqlParameterSource("cuit", factura.cuit()))
-            .flatMap(locadorId -> unicoId(
-                InvoiceSql.CONTRATO_VIGENTE_DEL_LOCADOR,
-                new MapSqlParameterSource()
-                    .addValue("locadorId", locadorId)
-                    .addValue("periodo", factura.periodo())));
+            InvoiceSql.CONTRATO_VIGENTE_DEL_LOCADOR,
+            new MapSqlParameterSource()
+                .addValue("locadorId", locadorId.get())
+                .addValue("periodo", factura.periodo()));
 
         if (contratoId.isEmpty()) {
             return false;
         }
 
+        if (!tipoFacturaCoincide(contratoId.get(), locadorId.get(), factura.tipoFactura())) {
+            return false;
+        }
+
         assign(facturaId, contratoId.get());
         return true;
+    }
+
+    /**
+     * Busca los locadores del contrato (id + indicador_impuesto) y verifica que
+     * el locador emisor esté entre ellos y que su indicador convertido
+     * (C1 → A, C5 → C) coincida con el tipo de la factura.
+     */
+    private boolean tipoFacturaCoincide(long contratoId, long locadorEmisorId, String tipoFactura) {
+
+        String tipo = letraTipoFactura(tipoFactura);
+        if (tipo == null) {
+            return false;
+        }
+
+        List<Map<String, Object>> locadores = repo.jdbc().queryForList(
+            InvoiceSql.LOCADORES_DEL_CONTRATO,
+            new MapSqlParameterSource("contratoId", contratoId));
+
+        return locadores.stream().anyMatch(l ->
+            asLong(l.get("id")) == locadorEmisorId
+                && tipo.equals(tipoPorIndicador(str(l.get("indicadorImpuesto")))));
+    }
+
+    /** C1 → A, C5 → C. Cualquier otro valor (o null) no corresponde a ningún tipo. */
+    private static String tipoPorIndicador(String indicador) {
+        if (indicador == null) {
+            return null;
+        }
+        return switch (indicador.trim().toUpperCase()) {
+            case "C1" -> "A";
+            case "C5" -> "C";
+            default -> null;
+        };
+    }
+
+    /** Lleva el tipo de la factura a una letra: "A", "FA", "Factura A" → "A". */
+    private static String letraTipoFactura(String tipoFactura) {
+        if (tipoFactura == null || tipoFactura.isBlank()) {
+            return null;
+        }
+        String t = tipoFactura.trim().toUpperCase();
+        return t.substring(t.length() - 1);
     }
 
     /** Devuelve el id solo si la consulta trae exactamente una fila. */

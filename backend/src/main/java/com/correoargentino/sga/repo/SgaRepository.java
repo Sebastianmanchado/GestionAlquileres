@@ -387,7 +387,26 @@ public class SgaRepository {
         c.put("estados", query("SELECT id, codigo, nombre FROM estado_contrato ORDER BY id", new MapSqlParameterSource()));
         c.put("indices", query("SELECT id, codigo, nombre FROM indice_ajuste ORDER BY id", new MapSqlParameterSource()));
         c.put("tiposComprobante", query("SELECT id, codigo, nombre FROM tipo_comprobante ORDER BY id", new MapSqlParameterSource()));
-        c.put("locadores", query("SELECT id, razon_social AS razonSocial, cuit FROM locador WHERE activo=1 ORDER BY razon_social", new MapSqlParameterSource()));
+        c.put("locadores", query("""
+            SELECT lo.id,
+                lo.razon_social       AS razonSocial,
+                RTRIM(lo.cuit)        AS cuit,
+                lo.email,
+                lo.telefono,
+                lo.cbu,
+                sap.codigo_sap        AS acreedorSap,
+                lo.ceco_sap           AS cecoSap,
+                lo.division_sap       AS divisionSap,
+                lo.cuenta_gasto       AS cuentaGasto,
+                lo.indicador_impuesto AS indicadorImpuesto
+            FROM locador lo
+            OUTER APPLY (SELECT TOP 1 codigo_sap
+                            FROM acreedor_sap
+                            WHERE locador_id = lo.id
+                            ORDER BY id) sap
+            WHERE lo.activo = 1
+            ORDER BY lo.razon_social
+            """, new MapSqlParameterSource()));
         c.put("centrosCosto", query("SELECT id, codigo, descripcion FROM centro_costo ORDER BY id", new MapSqlParameterSource()));
         return c;
     }

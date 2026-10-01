@@ -233,6 +233,7 @@ CREATE TABLE factura (
     rpa_ejecucion_id   BIGINT         NULL,
     observaciones      NVARCHAR(MAX)  NULL,
     datos_extraidos    NVARCHAR(MAX)  NULL,
+    tipo_factura       NVARCHAR(3)    NULL,
     creado_en          DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT fk_factura_contrato FOREIGN KEY (contrato_id) REFERENCES contrato(id),
     CONSTRAINT fk_factura_inmueble FOREIGN KEY (inmueble_id) REFERENCES inmueble(id),
