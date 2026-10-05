@@ -81,6 +81,10 @@ CREATE TABLE locador (
     email         NVARCHAR(160)  NULL,
     telefono      NVARCHAR(60)   NULL,
     cbu           VARCHAR(22)    NULL,
+    cuenta_gasto  VARCHAR(100)   NULL,
+    division_sap  VARCHAR(100)   NULL,
+    ceco_sap      VARCHAR(100)   NULL,
+    indicador_impuesto VARCHAR(10) NULL,
     activo        BIT            NOT NULL DEFAULT 1
 );
 
@@ -135,7 +139,6 @@ CREATE TABLE contrato (
     id                     BIGINT         NOT NULL IDENTITY(1,1) PRIMARY KEY,
     numero                 NVARCHAR(40)   NOT NULL UNIQUE,
     inmueble_id            BIGINT         NOT NULL,
-    locador_id             BIGINT         NOT NULL,
     acreedor_sap_id        BIGINT         NULL,
     tipo_contrato_id       SMALLINT       NOT NULL,
     estado_contrato_id     SMALLINT       NOT NULL,
@@ -154,7 +157,6 @@ CREATE TABLE contrato (
     creado_en              DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
     cantidad_facturas      SMALLINT       NOT NULL DEFAULT 0,
     CONSTRAINT fk_contrato_inmueble  FOREIGN KEY (inmueble_id) REFERENCES inmueble(id),
-    CONSTRAINT fk_contrato_locador   FOREIGN KEY (locador_id) REFERENCES locador(id),
     CONSTRAINT fk_contrato_acreedor  FOREIGN KEY (acreedor_sap_id) REFERENCES acreedor_sap(id),
     CONSTRAINT fk_contrato_tipo      FOREIGN KEY (tipo_contrato_id) REFERENCES tipo_contrato(id),
     CONSTRAINT fk_contrato_estado    FOREIGN KEY (estado_contrato_id) REFERENCES estado_contrato(id),
@@ -163,13 +165,24 @@ CREATE TABLE contrato (
     CONSTRAINT fk_contrato_comp      FOREIGN KEY (tipo_comprobante_id) REFERENCES tipo_comprobante(id)
 );
 
+CREATE TABLE contrato_locador (
+    contrato_id  BIGINT  NOT NULL,
+    locador_id   BIGINT  NOT NULL,
+    CONSTRAINT pk_contrato_locador          PRIMARY KEY (contrato_id, locador_id),
+    CONSTRAINT fk_contrato_locador_contrato FOREIGN KEY (contrato_id) REFERENCES contrato(id),
+    CONSTRAINT fk_contrato_locador_locador  FOREIGN KEY (locador_id)  REFERENCES locador(id)
+);
+
 CREATE TABLE factura_planificada (
-    id                      BIGINT          NOT NULL IDENTITY(1,1) PRIMARY KEY,
-    contrato_id             BIGINT          NOT NULL,
-    porcentaje_esperado     SMALLINT        NOT NULL,
-    monto_esperado          DECIMAL(18,2)   NOT NULL,
-    estado               NVARCHAR(40)  NOT NULL,
-    CONSTRAINT fk_contrato_id  FOREIGN KEY (contrato_id) REFERENCES contrato(id),
+    id                   BIGINT         NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    contrato_id          BIGINT         NOT NULL,
+    locador_id           BIGINT         NOT NULL,
+    porcentaje_esperado  SMALLINT       NOT NULL,
+    monto_esperado       DECIMAL(18,2)  NOT NULL,
+    estado               NVARCHAR(40)   NOT NULL,
+    CONSTRAINT fk_factura_planificada_contrato_locador
+        FOREIGN KEY (contrato_id, locador_id)
+        REFERENCES contrato_locador(contrato_id, locador_id)
 );
 
 CREATE TABLE contrato_valor (
@@ -220,6 +233,7 @@ CREATE TABLE factura (
     rpa_ejecucion_id   BIGINT         NULL,
     observaciones      NVARCHAR(MAX)  NULL,
     datos_extraidos    NVARCHAR(MAX)  NULL,
+    tipo_factura       NVARCHAR(3)    NULL,
     creado_en          DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT fk_factura_contrato FOREIGN KEY (contrato_id) REFERENCES contrato(id),
     CONSTRAINT fk_factura_inmueble FOREIGN KEY (inmueble_id) REFERENCES inmueble(id),

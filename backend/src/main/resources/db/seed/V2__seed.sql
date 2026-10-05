@@ -95,20 +95,24 @@ INSERT INTO usuario (username, nombre, email, activo) VALUES
 INSERT INTO usuario_rol_cache (usuario_id, rol) VALUES
  (1, N'ANALISTA'), (2, N'SUPERVISOR'), (3, N'ANALISTA'), (4, N'AUDITOR'), (5, N'SISTEMA');
 
-/* ---------- Locadores ---------- */
-INSERT INTO locador (tipo_persona, razon_social, cuit, email, telefono, cbu, activo) VALUES
- (N'JURIDICA', N'Propietaria del Plata SRL',   '30712345672', N'contacto@delplata.com',   N'011 4555-2310', N'2850590940090418135201', 1),
- (N'FISICA',   N'Rodríguez, Ana María',        '27301234564', N'ana.rodriguez@mail.com',  N'011 4444-1122', N'0170099220000067797370', 1),
- (N'JURIDICA', N'Inversiones del Sur SA',      '30685412309', N'admin@invsur.com.ar',     N'0291 456-7788', N'0110599520000012345678', 1),
- (N'FISICA',   N'Pérez, Carlos Alberto',       '20259876541', N'carlos.perez@mail.com',   N'0351 422-3344', N'0720099988000098765432', 1),
- (N'JURIDICA', N'Fideicomiso Norte',           '30687412309', N'fideicomiso@norte.com',   N'0387 421-9900', N'0140099803200055667788', 1),
- (N'JURIDICA', N'Grupo Inmobiliario Cuyo SA',  '33710293845', N'info@grupocuyo.com',      N'0261 429-1010', N'0290099911000011223344', 1),
- (N'FISICA',   N'Gómez, Marta Susana',         '27284561238', N'marta.gomez@mail.com',    N'0341 455-6677', N'0850099944000099887766', 1),
- (N'JURIDICA', N'Litoral Propiedades SRL',     '30709182734', N'ventas@litoralprop.com',  N'0376 443-2211', N'0110099922000033445566', 1),
- (N'JURIDICA', N'razon prueba 1',  '11111111111', N'info@grupocuyo.com',      N'0261 429-1010', N'0290099911000011223344', 1),
- (N'FISICA',   N'razon prueba 2',         '22222222222', N'marta.gomez@mail.com',    N'0341 455-6677', N'0850099944000099887766', 1),
- (N'JURIDICA', N'razon prueba 3',     '33333333333', N'ventas@litoralprop.com',  N'0376 443-2211', N'0110099922000033445566', 1);
-
+/* ---------- Locadores ----------
+   indicador_impuesto: C1 -> Factura A | C5 -> Factura C
+   Los locadores 9, 10 y 11 (contratos extra) son C1. */
+INSERT INTO locador (
+    tipo_persona, razon_social, cuit, email, telefono, cbu,
+    cuenta_gasto, division_sap, ceco_sap, indicador_impuesto, activo
+) VALUES
+ (N'JURIDICA', N'Propietaria del Plata SRL',  '30712345672', N'contacto@delplata.com',  N'011 4555-2310', '2850590940090418135201', '510802', '4952', '53025952', 'C1', 1),
+ (N'FISICA',   N'Rodríguez, Ana María',       '27301234564', N'ana.rodriguez@mail.com', N'011 4444-1122', '0170099220000067797370', '510802', '4952', '53025953', 'C5', 1),
+ (N'JURIDICA', N'Inversiones del Sur SA',     '30685412309', N'admin@invsur.com.ar',    N'0291 456-7788', '0110599520000012345678', '510803', '4953', '53025954', 'C1', 1),
+ (N'FISICA',   N'Pérez, Carlos Alberto',      '20259876541', N'carlos.perez@mail.com',  N'0351 422-3344', '0720099988000098765432', '510802', '4954', '53025955', 'C5', 1),
+ (N'JURIDICA', N'Fideicomiso Norte',          '30687412309', N'fideicomiso@norte.com',  N'0387 421-9900', '0140099803200055667788', '510804', '4955', '53025956', 'C1', 1),
+ (N'JURIDICA', N'Grupo Inmobiliario Cuyo SA', '33710293845', N'info@grupocuyo.com',     N'0261 429-1010', '0290099911000011223344', '510802', '4956', '53025957', 'C1', 1),
+ (N'FISICA',   N'Gómez, Marta Susana',        '27284561238', N'marta.gomez@mail.com',   N'0341 455-6677', '0850099944000099887766', '510803', '4957', '53025958', 'C5', 1),
+ (N'JURIDICA', N'Litoral Propiedades SRL',    '30709182734', N'ventas@litoralprop.com', N'0376 443-2211', '0110099922000033445566', '510802', '4958', '53025959', 'C1', 1),
+ (N'JURIDICA', N'razon prueba 1',             '11111111111', N'info@grupocuyo.com',     N'0261 429-1010', '0290099911000011223344', '510802', '4952', '53025960', 'C1', 1),
+ (N'FISICA',   N'razon prueba 2',             '22222222222', N'marta.gomez@mail.com',   N'0341 455-6677', '0850099944000099887766', '510803', '4953', '53025961', 'C1', 1),
+ (N'JURIDICA', N'razon prueba 3',             '33333333333', N'ventas@litoralprop.com', N'0376 443-2211', '0110099922000033445566', '510804', '4954', '53025962', 'C1', 1);
 
 INSERT INTO acreedor_sap (codigo_sap, locador_id, descripcion) VALUES
  (N'AC-004821', 1, N'Propietaria del Plata SRL'),
@@ -124,7 +128,7 @@ INSERT INTO acreedor_sap (codigo_sap, locador_id, descripcion) VALUES
  (N'AC-004831', 11, N'Acreedor prueba 3');
 
 /* =========================================================================
-   1) INMUEBLES + CONTRATOS + VALORES + FACTURAS PLANIFICADAS + SEGUROS
+   1) INMUEBLES + CONTRATOS + LOCADORES + VALORES + FACTURAS PLANIFICADAS + SEGUROS
       (40 contratos facturables)
    ========================================================================= */
 DECLARE @i       INT  = 0;
@@ -164,6 +168,7 @@ DECLARE @planK        INT;
 DECLARE @planPct      INT;
 DECLARE @planAcum     DECIMAL(18,2);
 DECLARE @planMonto    DECIMAL(18,2);
+DECLARE @planLocador  BIGINT;
 
 WHILE @i < @N
 BEGIN
@@ -171,13 +176,13 @@ BEGIN
     SET @regionId     = (@i % 5) + 1;
     SET @locId        = (@i % 10) + 1;
     SET @ccId         = @regionId;
-    SET @locadorId    = (@i % 8) + 1;
+    SET @locadorId    = (@i % 8) + 1;          -- locador "principal"
     SET @acreedorId   = @locadorId;
     SET @tipoContrato = (@i % 2) + 1;
     SET @destino      = CASE WHEN @i % 4 = 0 THEN 2 ELSE 1 END;
     SET @indice       = (@i % 2) + 1;
 
-    -- facturas planificadas del contrato POR PERIODO: 1, 2 o 3
+    -- facturas planificadas (y locadores) del contrato: 1, 2 o 3
     SET @cantPlan = (@i % 3) + 1;
 
     SET @estadoId = CASE
@@ -226,7 +231,7 @@ BEGIN
         VALUES (@inmId, 1);
 
     INSERT INTO contrato (
-        numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id,
+        numero, inmueble_id, acreedor_sap_id, tipo_contrato_id,
         estado_contrato_id, fecha_inicio, fecha_vencimiento, moneda,
         importe_inicial, deposito_garantia, indice_ajuste_id, periodicidad_ajuste,
         tipo_comprobante_id, tolerancia_importe_pct, tipo_facturacion,
@@ -234,7 +239,7 @@ BEGIN
     )
     VALUES (
         N'C-' + RIGHT('000000' + CAST(1000 + @i AS NVARCHAR(10)), 6),
-        @inmId, @locadorId, @acreedorId, @tipoContrato, @estadoId,
+        @inmId, @acreedorId, @tipoContrato, @estadoId,
         @inicio, @venc, N'ARS', @importe * 0.78, @deposito,
         @indice, N'TRIMESTRAL',
         CASE WHEN @tipoContrato = 1 THEN 1 ELSE 2 END,
@@ -261,20 +266,26 @@ BEGIN
       (@conId, '2026-01-01', NULL,         @importe,        N'AJUSTE_INDICE', @indice, 1.082);
 
     /* =====================================================================
-       FACTURAS PLANIFICADAS DEL CONTRATO
+       LOCADORES + FACTURAS PLANIFICADAS DEL CONTRATO
 
-       1 -> 100
-       2 -> 50, 50
-       3 -> 34, 33, 33
+       1 -> 100            (1 locador)
+       2 -> 50, 50         (2 locadores)
+       3 -> 34, 33, 33     (3 locadores)
 
-       La última factura absorbe el residuo de redondeo para que la suma
-       de monto_esperado coincida exactamente con el importe mensual.
+       Cada factura planificada corresponde a un locador distinto.
+       Locador k = ((@i + k - 1) % 8) + 1  -> el primero es @locadorId.
+       La última factura absorbe el residuo de redondeo.
        ===================================================================== */
     SET @planK    = 1;
     SET @planAcum = 0;
 
     WHILE @planK <= @cantPlan
     BEGIN
+        SET @planLocador = ((@i + @planK - 1) % 8) + 1;
+
+        INSERT INTO contrato_locador (contrato_id, locador_id)
+        VALUES (@conId, @planLocador);
+
         SET @planPct = CASE
             WHEN @planK = 1
                 THEN 100 - (100 / @cantPlan) * (@cantPlan - 1)
@@ -288,10 +299,10 @@ BEGIN
         END;
 
         INSERT INTO factura_planificada (
-            contrato_id, porcentaje_esperado, monto_esperado, estado
+            contrato_id, locador_id, porcentaje_esperado, monto_esperado, estado
         )
         VALUES (
-            @conId, @planPct, @planMonto, N'PENDIENTE'
+            @conId, @planLocador, @planPct, @planMonto, N'PENDIENTE'
         );
 
         SET @planAcum = @planAcum + @planMonto;
@@ -313,6 +324,7 @@ END
 /* =========================================================================
    2) CONTRATOS B0601 / B0602 / B0603  -  SIN FACTURAS REALES
       (esperan 1 factura planificada del 100%)
+      Locadores 9, 10 y 11, todos con indicador_impuesto C1 (Factura A)
    ========================================================================= */
 DECLARE @j INT = 0;
 
@@ -378,21 +390,27 @@ BEGIN
 
     SET @acreedorIdExtra = @locadorIdExtra;
 
+    -- los contratos extra deben tener locadores C1 (Factura A)
+    UPDATE locador SET indicador_impuesto = 'C1' WHERE id = @locadorIdExtra;
+
     INSERT INTO contrato (
-        numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id,
+        numero, inmueble_id, acreedor_sap_id, tipo_contrato_id,
         estado_contrato_id, fecha_inicio, fecha_vencimiento, moneda,
         importe_inicial, deposito_garantia, indice_ajuste_id, periodicidad_ajuste,
         tipo_comprobante_id, tolerancia_importe_pct, tipo_facturacion,
         observaciones, cantidad_facturas
     )
     VALUES (
-        N'C-' + @nisExtra, @inmIdExtra, @locadorIdExtra, @acreedorIdExtra, 1, 1,
+        N'C-' + @nisExtra, @inmIdExtra, @acreedorIdExtra, 1, 1,
         '2023-07-01', '2028-07-01', N'ARS', @importeExtra, @importeExtra * 2,
         1, N'TRIMESTRAL', 1, 3.0, N'personalizado',
         N'Contrato sin facturas asociadas (bandeja).', 1
     );
 
     SET @conIdExtra = CONVERT(BIGINT, SCOPE_IDENTITY());
+
+    INSERT INTO contrato_locador (contrato_id, locador_id)
+    VALUES (@conIdExtra, @locadorIdExtra);
 
     INSERT INTO contrato_valor (
         contrato_id, vigencia_desde, vigencia_hasta, importe_mensual,
@@ -405,10 +423,10 @@ BEGIN
 
     /* Factura planificada única del 100% */
     INSERT INTO factura_planificada (
-        contrato_id, porcentaje_esperado, monto_esperado, estado
+        contrato_id, locador_id, porcentaje_esperado, monto_esperado, estado
     )
     VALUES (
-        @conIdExtra, 100, @importeExtra, N'PENDIENTE'
+        @conIdExtra, @locadorIdExtra, 100, @importeExtra, N'PENDIENTE'
     );
 
     SET @j = @j + 1;
@@ -444,6 +462,8 @@ DECLARE @rpaJunio BIGINT = (
    4) FACTURAS
       @mesesHistoria = 1 -> solo 2026-06 (cantidad exacta por contrato)
       @mesesHistoria = 3 -> agrega 2026-04 y 2026-05 como historia
+      La factura k de cada período la emite el locador de la planificada k.
+      tipo_factura sale del indicador del locador: C1 -> A | C5 -> C
    ========================================================================= */
 DECLARE @mesesHistoria INT = 1;          -- <<< CAMBIAR A 3 SI QUERES HISTORIA
 
@@ -459,14 +479,15 @@ VALUES
 
 DELETE FROM @periodos WHERE orden > @mesesHistoria;
 
-DECLARE @c      BIGINT;
-DECLARE @imp    DECIMAL(18,2);
-DECLARE @cuit   CHAR(11);
-DECLARE @razon  NVARCHAR(200);
-DECLARE @inm    BIGINT;
-DECLARE @pv     INT = 3;
-DECLARE @cat    INT;
-DECLARE @rownum INT = 0;
+DECLARE @c           BIGINT;
+DECLARE @imp         DECIMAL(18,2);
+DECLARE @cuit        CHAR(11);
+DECLARE @razon       NVARCHAR(200);
+DECLARE @tipoFactura NVARCHAR(3);
+DECLARE @inm         BIGINT;
+DECLARE @pv          INT = 3;
+DECLARE @cat         INT;
+DECLARE @rownum      INT = 0;
 
 DECLARE @cantFact   INT;
 DECLARE @k          INT;
@@ -490,17 +511,15 @@ DECLARE @seq        INT;
 SET @maxOrden = (SELECT MAX(orden) FROM @periodos);
 
 DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
-    SELECT ct.id, ct.inmueble_id, cv.importe_mensual,
-           lo.cuit, lo.razon_social, s.cant_facturas
+    SELECT ct.id, ct.inmueble_id, cv.importe_mensual, s.cant_facturas
     FROM #contratos_seed s
     JOIN contrato ct       ON ct.id = s.contrato_id
     JOIN contrato_valor cv ON cv.contrato_id = ct.id
                           AND cv.vigencia_hasta IS NULL
-    JOIN locador lo        ON lo.id = ct.locador_id
     ORDER BY ct.id;
 
 OPEN cur;
-FETCH NEXT FROM cur INTO @c, @inm, @imp, @cuit, @razon, @cantFact;
+FETCH NEXT FROM cur INTO @c, @inm, @imp, @cantFact;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
@@ -555,6 +574,27 @@ BEGIN
 
             WHILE @k <= @cantFact
             BEGIN
+                -- emisor = locador de la factura planificada k del contrato
+                SET @cuit        = NULL;
+                SET @razon       = NULL;
+                SET @tipoFactura = NULL;
+
+                SELECT @cuit        = lo.cuit,
+                       @razon       = lo.razon_social,
+                       @tipoFactura = CASE UPPER(LTRIM(RTRIM(lo.indicador_impuesto)))
+                                          WHEN 'C1' THEN N'A'
+                                          WHEN 'C5' THEN N'C'
+                                          ELSE NULL
+                                      END
+                FROM (
+                    SELECT fp.locador_id,
+                           ROW_NUMBER() OVER (ORDER BY fp.id) AS rn
+                    FROM factura_planificada fp
+                    WHERE fp.contrato_id = @c
+                ) x
+                JOIN locador lo ON lo.id = x.locador_id
+                WHERE x.rn = @k;
+
                 -- 1 -> 100 | 2 -> 50,50 | 3 -> 34,33,33
                 SET @pct = CASE
                     WHEN @k = 1
@@ -577,7 +617,7 @@ BEGIN
                     tipo_comprobante_id, punto_venta, numero_comprobante,
                     fecha_emision, periodo_facturado,
                     importe_neto, importe_iva, importe_total,
-                    cae, estado, origen, rpa_ejecucion_id
+                    cae, estado, origen, rpa_ejecucion_id, tipo_factura
                 )
                 VALUES (
                     @c, @inm, @cuit, @razon, @tipoComp, @pv,
@@ -585,7 +625,7 @@ BEGIN
                     @fechaEmi, @periodo,
                     @neto, @impFact - @neto, @impFact,
                     N'7' + CAST(1234567890000 + @seq AS NVARCHAR(20)),
-                    @estadoFac, N'RPA', @rpaId
+                    @estadoFac, N'RPA', @rpaId, @tipoFactura
                 );
 
                 SET @k = @k + 1;
@@ -596,7 +636,7 @@ BEGIN
     END
 
     SET @rownum = @rownum + 1;
-    FETCH NEXT FROM cur INTO @c, @inm, @imp, @cuit, @razon, @cantFact;
+    FETCH NEXT FROM cur INTO @c, @inm, @imp, @cantFact;
 END
 
 CLOSE cur;
@@ -604,19 +644,20 @@ DEALLOCATE cur;
 
 /* =========================================================================
    5) FACTURAS SIN ASIGNAR (bandeja)  -  contrato_id NULL
+      tipo_factura coincide con el indicador del locador de ese CUIT
    ========================================================================= */
 INSERT INTO factura (
     cuit_emisor, razon_social, tipo_comprobante_id, punto_venta,
     numero_comprobante, fecha_emision, periodo_facturado,
-    importe_neto, importe_iva, importe_total, estado, origen, rpa_ejecucion_id
+    importe_neto, importe_iva, importe_total, estado, origen, rpa_ejecucion_id, tipo_factura
 )
 VALUES
- ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047989', '2026-05-04','2026-05-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('30685412309', N'Inversiones del Sur SA',    1, 1, N'0001-00012044', '2026-06-06','2026-06-01', 340495.87, 71504.13, 412000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('20259876541', N'Pérez Carlos Alberto',      2, 2, N'0002-00098231', '2026-06-04','2026-06-01', 239256.20, 50243.80, 289500.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('30687412309', N'Fideicomiso Norte',         1, 4, N'0004-00003321', '2026-05-09','2026-05-01', 414297.52, 87002.48, 501300.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('33710293845', N'Grupo Inmobiliario Cuyo SA',1, 1, N'0001-00012099', '2026-06-07','2026-06-01', 162809.92, 34190.08, 197000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio),
- ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio);
+ ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047989', '2026-05-04','2026-05-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('30685412309', N'Inversiones del Sur SA',    1, 1, N'0001-00012044', '2026-06-06','2026-06-01', 340495.87, 71504.13, 412000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('20259876541', N'Pérez Carlos Alberto',      2, 2, N'0002-00098231', '2026-06-04','2026-06-01', 239256.20, 50243.80, 289500.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'C'),
+ ('30687412309', N'Fideicomiso Norte',         1, 4, N'0004-00003321', '2026-05-09','2026-05-01', 414297.52, 87002.48, 501300.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('33710293845', N'Grupo Inmobiliario Cuyo SA',1, 1, N'0001-00012099', '2026-06-07','2026-06-01', 162809.92, 34190.08, 197000.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A'),
+ ('30712345672', N'Propietaria del Plata SRL', 1, 3, N'0003-00047890', '2026-04-04','2026-04-01', 296033.06, 62166.94, 358200.00, N'SIN_ASIGNAR', N'RPA', @rpaJunio, N'A');
 
 /* =========================================================================
    6) CONCILIACION DEL PERIODO 2026-06

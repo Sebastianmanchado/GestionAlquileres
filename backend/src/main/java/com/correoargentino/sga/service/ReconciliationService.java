@@ -283,18 +283,28 @@ public class ReconciliationService {
         MapSqlParameterSource p = new MapSqlParameterSource("id", id);
         Map<String, Object> conc = repo.queryOne("""
             SELECT co.id, co.periodo, co.importe_esperado AS esperado, co.importe_facturado AS facturado,
-                   co.diferencia, co.estado AS estadoCodigo, co.comentario, co.revisada_en AS revisadaEn,
-                   i.nis, i.denominacion AS denom, lo.cuit AS locadorCuit,
-                   tcc.nombre AS contratoTipoComprobante,
-                   u.nombre AS revisadaPor,
-                   (SELECT TOP 1 rol FROM usuario_rol_cache WHERE usuario_id=u.id) AS revisadaRol
-              FROM conciliacion co
-              JOIN contrato c ON c.id=co.contrato_id
-              JOIN inmueble i ON i.id=c.inmueble_id
-              JOIN locador lo ON lo.id=c.locador_id
-              LEFT JOIN tipo_comprobante tcc ON tcc.id=c.tipo_comprobante_id
-              LEFT JOIN usuario u ON u.id=co.revisada_por
-             WHERE co.id=:id
+                co.diferencia, co.estado AS estadoCodigo, co.comentario, co.revisada_en AS revisadaEn,
+                i.nis, i.denominacion AS denom,
+                loc.locadorCuit,
+                loc.locadorRazon,
+                loc.cantidadLocadores,
+                tcc.nombre AS contratoTipoComprobante,
+                u.nombre AS revisadaPor,
+                (SELECT TOP 1 rol FROM usuario_rol_cache WHERE usuario_id=u.id) AS revisadaRol
+            FROM conciliacion co
+            JOIN contrato c ON c.id=co.contrato_id
+            JOIN inmueble i ON i.id=c.inmueble_id
+            OUTER APPLY (
+                SELECT STRING_AGG(RTRIM(lo.cuit), ', ')   WITHIN GROUP (ORDER BY lo.id) AS locadorCuit,
+                        STRING_AGG(lo.razon_social, ' / ') WITHIN GROUP (ORDER BY lo.id) AS locadorRazon,
+                        COUNT(*)                                                        AS cantidadLocadores
+                    FROM contrato_locador cl
+                    JOIN locador lo ON lo.id = cl.locador_id
+                WHERE cl.contrato_id = c.id
+            ) loc
+            LEFT JOIN tipo_comprobante tcc ON tcc.id=c.tipo_comprobante_id
+            LEFT JOIN usuario u ON u.id=co.revisada_por
+            WHERE co.id=:id
             """, p);
         if (conc == null) throw new NotFoundException("Conciliación no encontrada");
 

@@ -13,24 +13,25 @@ public final class ContractSql {
     public static final String ULTIMO_NUMERO =
         "SELECT ISNULL(MAX(TRY_CAST(REPLACE(numero,'C-','') AS INT)),1000) FROM contrato";
 
+        // =====================================================
+    // contrato  (sin locador_id ni datos SAP: ahora están en contrato_locador / locador)
+    // =====================================================
+
     public static final String INSERT_CONTRATO = """
-        INSERT INTO contrato (numero, inmueble_id, locador_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
+        INSERT INTO contrato (numero, inmueble_id, acreedor_sap_id, tipo_contrato_id, estado_contrato_id,
                               fecha_inicio, fecha_vencimiento, moneda, importe_inicial, deposito_garantia,
                               indice_ajuste_id, periodicidad_ajuste, tipo_comprobante_id, tolerancia_importe_pct,
-                              tipo_facturacion, cantidad_facturas,
-                              ceco_sap, division_sap, cuenta_gasto, indicador_impuesto)
-        VALUES (:numero, :inmuebleId, :locadorId, :acreedorId, :tipoContrato, :estadoId,
+                              tipo_facturacion, cantidad_facturas)
+        VALUES (:numero, :inmuebleId, :acreedorId, :tipoContrato, :estadoId,
                 :inicio, :venc, 'ARS', :importe, :deposito,
                 :indiceId, :periodicidad, :tipoComp, :tolerancia,
-                :tipoFacturacion, :cantidadFacturas,
-                :cecoSap, :divisionSap, :cuentaGasto, :indicadorImpuesto)
+                :tipoFacturacion, :cantidadFacturas)
         """;
 
     public static final String UPDATE_CONTRATO = """
         UPDATE contrato
         SET
             inmueble_id = :inmuebleId,
-            locador_id = :locadorId,
             acreedor_sap_id = :acreedorId,
             tipo_contrato_id = :tipoContrato,
             estado_contrato_id = :estadoId,
@@ -43,13 +44,49 @@ public final class ContractSql {
             tipo_comprobante_id = :tipoComp,
             tolerancia_importe_pct = :tolerancia,
             tipo_facturacion = :tipoFacturacion,
-            cantidad_facturas = :cantidadFacturas,
-            ceco_sap = :cecoSap,
-            division_sap = :divisionSap,
-            cuenta_gasto = :cuentaGasto,
-            indicador_impuesto = :indicadorImpuesto
+            cantidad_facturas = :cantidadFacturas
         WHERE id = :id
         """;
+
+    // =====================================================
+    // contrato_locador
+    // =====================================================
+
+    public static final String INSERT_CONTRATO_LOCADOR = """
+        INSERT INTO contrato_locador (contrato_id, locador_id)
+        VALUES (:contratoId, :locadorId)
+        """;
+
+    public static final String DELETE_CONTRATO_LOCADORES = """
+        DELETE FROM contrato_locador
+        WHERE contrato_id = :id
+        """;
+
+    // =====================================================
+    // locador / acreedor SAP
+    // =====================================================
+
+    public static final String LOCADOR_EXISTE =
+        "SELECT COUNT(*) FROM locador WHERE id = :id";
+
+    public static final String LOCADOR_ID_POR_CUIT =
+        "SELECT id FROM locador WHERE cuit = :cuit";
+
+    /** Solo pisa los datos que llegan con valor; los que llegan en null se conservan. */
+    public static final String UPDATE_LOCADOR_SAP = """
+        UPDATE locador
+           SET email              = COALESCE(:email, email),
+               telefono           = COALESCE(:telefono, telefono),
+               cbu                = COALESCE(:cbu, cbu),
+               cuenta_gasto       = COALESCE(:cuentaGasto, cuenta_gasto),
+               division_sap       = COALESCE(:divisionSap, division_sap),
+               ceco_sap           = COALESCE(:cecoSap, ceco_sap),
+               indicador_impuesto = COALESCE(:indicadorImpuesto, indicador_impuesto)
+         WHERE id = :id
+        """;
+
+    public static final String ACREEDOR_POR_LOCADOR =
+        "SELECT TOP 1 id FROM acreedor_sap WHERE locador_id = :locadorId ORDER BY id";
 
     public static final String RESCINDIR =
         "UPDATE contrato SET estado_contrato_id=4 WHERE id=:id";
@@ -64,8 +101,8 @@ public final class ContractSql {
         """;
 
     public static final String INSERT_PLANIFICADA = """
-        INSERT INTO factura_planificada (contrato_id, porcentaje_esperado, monto_esperado, estado)
-        VALUES (:contratoId, :porcentaje, :monto, 'PENDIENTE')
+        INSERT INTO factura_planificada (contrato_id, locador_id, porcentaje_esperado, monto_esperado, estado)
+        VALUES (:contratoId, :locadorId, :porcentaje, :monto, 'PENDIENTE')
         """;
 
     // =====================================================
@@ -142,8 +179,10 @@ public final class ContractSql {
         """;
 
     public static final String INSERT_LOCADOR = """
-        INSERT INTO locador (tipo_persona, razon_social, cuit, email, telefono, activo)
-        VALUES ('JURIDICA', :razonSocial, :cuit, :email, :telefono, 1)
+        INSERT INTO locador (tipo_persona, razon_social, cuit, email, telefono, cbu,
+                             cuenta_gasto, division_sap, ceco_sap, indicador_impuesto, activo)
+        VALUES ('JURIDICA', :razonSocial, :cuit, :email, :telefono, :cbu,
+                :cuentaGasto, :divisionSap, :cecoSap, :indicadorImpuesto, 1)
         """;
 
     public static final String ACREEDOR_POR_CODIGO =

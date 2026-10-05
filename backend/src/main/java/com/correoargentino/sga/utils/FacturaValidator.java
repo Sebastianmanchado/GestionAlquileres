@@ -42,6 +42,7 @@ class FacturaValidator {
 
         String razonSocial = requireString(body, "razonSocial", "Razón Social");
         String comprobante = requireString(body, "comprobante", "Comprobante");
+        String tipo_factura = requireString(body, "tipo_factura", "Tipo Factura");
 
         BigDecimal total = importe(body.get("importe"));
         YearMonth periodo = periodo(body.get("periodo"));
@@ -54,6 +55,7 @@ class FacturaValidator {
             (String) body.get("nis"),
             razonSocial,
             comprobante,
+            tipo_factura,
             (String) body.get("observaciones"),
             total,
             neto,
