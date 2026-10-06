@@ -642,7 +642,7 @@ export function ConciliacionPeriodo() {
                   </button>
                 )}
                 {enviado && (
-                  <Badge label="Enviado a SAP" tone="green" />
+                  <Badge label="Enviado a SAP con éxito" tone="green" />
                 )}
               </div>
             </div>
@@ -888,7 +888,7 @@ export function ConciliacionPeriodo() {
             <div style={{ padding: 18, maxHeight: 360, overflowY: 'auto' }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
                 {rechazados.length === 0
-                  ? 'Asientos enviados a SAP'
+                  ? 'Enviado a SAP con éxito'
                   : enviados.length === 0
                     ? 'No se envió ningún asiento'
                     : 'Envío parcial a SAP'}

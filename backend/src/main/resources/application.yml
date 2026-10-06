@@ -29,6 +29,8 @@ sga:
     user: ${SGA_SAP_USER:}
     password: ${SGA_SAP_PASSWORD:}
     soap-action: ${SGA_SAP_SOAP_ACTION:}
+    # Sin URL de SAP, el envío se marca como exitoso para la demo local.
+    simular-sin-config: ${SGA_SAP_SIMULAR:true}
   ajustes:
     enabled: ${SGA_AJUSTES_AUTO:true}
     cron: "${SGA_AJUSTES_CRON:0 30 6 * * *}"
