@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -111,15 +112,13 @@ public class ContractService {
     // Edición
     // =====================================================
 
-        @Transactional
+    @Transactional
     public void update(long id, Map<String, Object> body) throws BadRequestException {
 
         requireEdit();
 
         Map<String, Object> before = repo.getContractDetail(id);
 
-        // ⚠ Orden original preservado: el índice nuevo se crea ANTES de verificar
-        //   que el contrato exista. Para corregirlo, mover esta línea debajo del if.
         Long indiceId = resolverIndice(body);
 
         if (before == null) {
@@ -135,8 +134,8 @@ public class ContractService {
 
         DatosContrato datos = new DatosContrato(
             inmuebleId,
-            principal.locadorId(),          // ya no se guarda en contrato; el UPDATE lo ignora
-            principal.acreedorId(),         // contrato.acreedor_sap_id = acreedor del primer locador
+            principal.locadorId(),          
+            principal.acreedorId(),         
             indiceId,
             asInt(body.get("tipoContratoId")),
             asDateOrToday(body.get("fechaInicio")),
@@ -146,7 +145,7 @@ public class ContractService {
             asDecimal(body.get("tolerancia")),
             str(body.get("periodicidad")),
             asInt(body.get("tipoComprobanteId")),
-            locadores.size());              // una factura planificada por locador
+            locadores.size());              
 
         repo.jdbc().update(
             ContractSql.UPDATE_CONTRATO,
@@ -155,7 +154,10 @@ public class ContractService {
         reemplazarLocadoresYPlanificadas(id, locadores, datos.importe());
         actualizarImporteVigente(id, datos.importe(), nis(before));
 
+        Map<String, Object> after = repo.getContractDetail(id);
+
         auditar(id, "EDITAR", "Actualizó datos del contrato", nis(before));
+        auditarCambios(id, before, after, nis(before));
     }
 
     /** Cierra el valor vigente y abre uno nuevo (origen ACUERDO) solo si el importe cambió. */
@@ -709,5 +711,138 @@ public class ContractService {
                 .addValue("cuentaGasto", blankToNull(body.get("cuentaGasto")))
                 .addValue("indicadorImpuesto", blankToNull(body.get("indicadorImpuesto")));
         }
+    }
+    
+        /** Campos del contrato que se auditan: clave en getContractDetail → nombre que se muestra. */
+    private static final Map<String, String> CAMPOS_AUDITADOS = new LinkedHashMap<>();
+    static {
+        CAMPOS_AUDITADOS.put("nis", "NIS");
+        CAMPOS_AUDITADOS.put("denom", "Unidad de negocio");
+        CAMPOS_AUDITADOS.put("direccion", "Dirección");
+        CAMPOS_AUDITADOS.put("region", "Región");
+        CAMPOS_AUDITADOS.put("localidad", "Localidad");
+        CAMPOS_AUDITADOS.put("destino", "Destino / uso");
+        CAMPOS_AUDITADOS.put("supCubierta", "Superficie cubierta");
+        CAMPOS_AUDITADOS.put("tipo", "Tipo de contrato");
+        CAMPOS_AUDITADOS.put("inicio", "Fecha de inicio");
+        CAMPOS_AUDITADOS.put("vencimiento", "Fecha de vencimiento");
+        CAMPOS_AUDITADOS.put("valorActual", "Importe mensual");
+        CAMPOS_AUDITADOS.put("deposito", "Depósito de garantía");
+        CAMPOS_AUDITADOS.put("tolerancia", "Tolerancia");
+        CAMPOS_AUDITADOS.put("indiceCodigo", "Índice de ajuste");
+        CAMPOS_AUDITADOS.put("periodicidad", "Frecuencia de ajuste");
+        CAMPOS_AUDITADOS.put("tipoFacturacion", "Tipo de facturación");
+        CAMPOS_AUDITADOS.put("acreedorSap", "Acreedor SAP");
+    }
+
+    /** Datos de cada locador que se auditan. */
+    private static final Map<String, String> CAMPOS_LOCADOR = new LinkedHashMap<>();
+    static {
+        CAMPOS_LOCADOR.put("razonSocial", "Razón social");
+        CAMPOS_LOCADOR.put("cuit", "CUIT");
+        CAMPOS_LOCADOR.put("email", "Contacto");
+        CAMPOS_LOCADOR.put("telefono", "Teléfono");
+        CAMPOS_LOCADOR.put("cbu", "CBU");
+        CAMPOS_LOCADOR.put("acreedorSap", "Acreedor SAP");
+        CAMPOS_LOCADOR.put("cecoSap", "CeCo SAP");
+        CAMPOS_LOCADOR.put("divisionSap", "División SAP");
+        CAMPOS_LOCADOR.put("cuentaGasto", "Cuenta de gasto");
+        CAMPOS_LOCADOR.put("indicadorImpuesto", "Indicador de impuestos");
+        CAMPOS_LOCADOR.put("porcentaje", "Porcentaje de factura");
+    }
+
+    private void auditarCambios(long id, Map<String, Object> before, Map<String, Object> after, String ref) {
+
+        // 1) datos del contrato
+        for (Map.Entry<String, String> campo : CAMPOS_AUDITADOS.entrySet()) {
+            registrarSiCambio(id, campo.getValue(),
+                before.get(campo.getKey()), after.get(campo.getKey()), ref);
+        }
+
+        // 2) locadores: agregados, quitados y datos modificados
+        Map<String, Map<String, Object>> locAntes = locadoresPorId(before);
+        Map<String, Map<String, Object>> locDespues = locadoresPorId(after);
+
+        for (Map.Entry<String, Map<String, Object>> e : locAntes.entrySet()) {
+            if (!locDespues.containsKey(e.getKey())) {
+                registrar(id, "Locador quitado", resumenLocador(e.getValue()), "—", ref);
+            }
+        }
+
+        for (Map.Entry<String, Map<String, Object>> e : locDespues.entrySet()) {
+            Map<String, Object> nuevo = e.getValue();
+            Map<String, Object> viejo = locAntes.get(e.getKey());
+
+            if (viejo == null) {
+                registrar(id, "Locador agregado", "—", resumenLocador(nuevo), ref);
+                continue;
+            }
+
+            String nombre = texto(nuevo.get("razonSocial"));
+            for (Map.Entry<String, String> campo : CAMPOS_LOCADOR.entrySet()) {
+                registrarSiCambio(id, campo.getValue() + " (" + nombre + ")",
+                    viejo.get(campo.getKey()), nuevo.get(campo.getKey()), ref);
+            }
+        }
+    }
+
+    /**
+     * Locadores del detalle indexados por id, con el porcentaje de su
+     * factura planificada agregado como "porcentaje".
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Map<String, Object>> locadoresPorId(Map<String, Object> detalle) {
+
+        Map<String, Object> porcentajes = new HashMap<>();
+        Object plan = detalle.get("facturas_planificadas");
+        if (plan instanceof List<?> lista) {
+            for (Object o : lista) {
+                Map<String, Object> fp = (Map<String, Object>) o;
+                porcentajes.put(texto(fp.get("locadorId")), fp.get("porcentaje"));
+            }
+        }
+
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        Object locs = detalle.get("locadores");
+        if (locs instanceof List<?> lista) {
+            for (Object o : lista) {
+                Map<String, Object> l = new HashMap<>((Map<String, Object>) o);
+                String key = texto(l.get("id"));
+                l.put("porcentaje", porcentajes.get(key));
+                result.put(key, l);
+            }
+        }
+        return result;
+    }
+
+    private String resumenLocador(Map<String, Object> l) {
+        return texto(l.get("razonSocial")) + " · " + texto(l.get("cuit"))
+            + " · " + texto(l.get("porcentaje")) + "%";
+    }
+
+    private void registrarSiCambio(long id, String campo, Object antes, Object despues, String ref) {
+        String a = texto(antes);
+        String d = texto(despues);
+        if (!a.equals(d)) {
+            registrar(id, campo, a, d, ref);
+        }
+    }
+
+    private void registrar(long id, String campo, String antes, String despues, String ref) {
+        audit.log(ENTIDAD_CONTRATO, String.valueOf(id), "EDITAR", campo, ref, antes, despues);
+    }
+
+    /**
+     * Normaliza para comparar y mostrar: null → "—", números sin ceros de más
+     * (3.00 → 3), fechas como yyyy-MM-dd y textos sin espacios de relleno.
+     */
+    private static String texto(Object v) {
+        if (v == null) return "—";
+        if (v instanceof BigDecimal b) return b.stripTrailingZeros().toPlainString();
+        if (v instanceof Number n) return new BigDecimal(n.toString()).stripTrailingZeros().toPlainString();
+        if (v instanceof java.sql.Date d) return d.toLocalDate().toString();
+        if (v instanceof java.sql.Timestamp t) return t.toLocalDateTime().toLocalDate().toString();
+        String s = v.toString().trim();
+        return s.isEmpty() ? "—" : s;
     }
 }
