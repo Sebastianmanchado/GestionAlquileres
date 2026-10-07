@@ -43,6 +43,7 @@ export function DetalleFactura({
         setForm({
           cuit: d.cuit,
           razonSocial: d.razonSocial,
+          tipo_factura: d.tipo_factura ?? '',
           comprobante: d.comprobante,
           importe: d.importe,
           periodo: d.periodo
@@ -605,12 +606,18 @@ export function DetalleFactura({
               <input
                 style={s.input}
                 value={form.razonSocial ?? ''}
-                onChange={(e) =>
-                  set(
-                    'razonSocial',
-                    e.target.value
-                  )
-                }
+                onChange={(e) => set('razonSocial', e.target.value)}
+                disabled={!meta.canEdit}
+              />
+            </Field>
+
+            <Field label="Tipo de factura">
+              <input
+                style={s.input}
+                value={form.tipo_factura ?? ''}
+                onChange={(e) => set('tipo_factura', e.target.value.toUpperCase())}
+                placeholder="Ej: A, B, C"
+                maxLength={3}
                 disabled={!meta.canEdit}
               />
             </Field>
@@ -619,12 +626,7 @@ export function DetalleFactura({
               <input
                 style={s.input}
                 value={form.comprobante ?? ''}
-                onChange={(e) =>
-                  set(
-                    'comprobante',
-                    e.target.value
-                  )
-                }
+                onChange={(e) => set('comprobante', e.target.value)}
                 disabled={!meta.canEdit}
               />
             </Field>

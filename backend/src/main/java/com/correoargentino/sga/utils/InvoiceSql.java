@@ -66,7 +66,7 @@ public final class InvoiceSql {
         SELECT f.id, f.cuit_emisor AS cuit, f.razon_social AS razonSocial, f.numero_comprobante AS comprobante,
                f.importe_total AS importe, f.importe_neto AS neto, f.importe_iva AS iva,
                f.periodo_facturado AS periodo, f.fecha_emision AS fechaEmision, f.cae, f.estado AS estadoCodigo,
-               f.punto_venta AS puntoVenta, f.fecha_vto_cae AS fechaVtoCae, f.moneda, f.observaciones,
+               f.punto_venta AS puntoVenta, f.fecha_vto_cae AS fechaVtoCae, f.moneda, f.observaciones, f.tipo_factura,
                tc.nombre AS tipoComprobante, tc.id AS tipoComprobanteId,
                c.id AS contratoId, i.nis AS contratoNis, i.denominacion AS contratoDenom
           FROM factura f
@@ -144,8 +144,6 @@ public final class InvoiceSql {
       FROM contrato c
       JOIN contrato_locador cl ON cl.contrato_id = c.id
      WHERE cl.locador_id = :locadorId
-       AND :periodo >= c.fecha_inicio
-       AND :periodo <= c.fecha_vencimiento
     """;
 
     /** Locadores del contrato con su indicador de impuestos. */
@@ -238,4 +236,24 @@ public final class InvoiceSql {
 
     public static final String TIPO_COMPROBANTE_POR_CODIGO =
         "SELECT id FROM tipo_comprobante WHERE codigo = :codigo";
+
+    public static final String TIPO_Y_CONTRATO_DE_FACTURA = """
+        SELECT f.tipo_factura AS tipoFactura,
+            f.contrato_id  AS contratoId
+        FROM factura f
+        WHERE f.id = :facturaId
+        """;
+
+    public static final String DESASIGNAR_FACTURA = """
+        UPDATE factura
+        SET contrato_id = NULL,
+            inmueble_id = NULL,
+            estado      = 'SIN_ASIGNAR'
+        WHERE id = :facturaId
+        """;
+
+    public static final String BORRAR_RELACIONES_DE_FACTURA = """
+        DELETE FROM conciliacion_factura
+        WHERE factura_id = :facturaId
+        """;
 }

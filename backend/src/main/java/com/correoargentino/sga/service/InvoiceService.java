@@ -142,11 +142,28 @@ public class InvoiceService {
 
         FacturaValidada factura = validator.validar(body);
 
+        Map<String, Object> actual = requerir(
+            InvoiceSql.TIPO_Y_CONTRATO_DE_FACTURA,
+            new MapSqlParameterSource("facturaId", id),
+            "Factura no encontrada");
+
+        Long contratoActual = actual.get("contratoId") == null
+            ? null
+            : numero(actual.get("contratoId")).longValue();
+
+        boolean cambioTipo = !mismoTipo(actual.get("tipoFactura"), factura.tipoFactura());
+
         repo.jdbc().update(
             InvoiceSql.UPDATE,
             camposComunes(factura).addValue("id", id));
 
-        autoAsignar(id, factura);
+        if (cambioTipo && contratoActual != null) {
+            desasignar(id, contratoActual);
+            auditar(id, "DESASIGNAR",
+                "Se desasignó por cambio de tipo de factura", SIN_REFERENCIA);
+        } else {
+            autoAsignar(id, factura);
+        }
 
         auditar(id, "EDITAR", "Editó la factura", SIN_REFERENCIA);
     }
@@ -380,5 +397,35 @@ public class InvoiceService {
 
     private static BigDecimal decimal(Object valor) {
         return valor == null ? BigDecimal.ZERO : (BigDecimal) valor;
+    }
+
+    private void desasignar(long facturaId, long contratoId) {
+
+        MapSqlParameterSource porFactura = new MapSqlParameterSource("facturaId", facturaId);
+
+        repo.jdbc().update(InvoiceSql.BORRAR_RELACIONES_DE_FACTURA, porFactura);
+        repo.jdbc().update(InvoiceSql.DESASIGNAR_FACTURA, porFactura);
+
+        // Recalcular la conciliación del contrato que tenía asignado
+        Map<String, Object> conciliacion = repo.queryOne(
+            InvoiceSql.CONCILIACION_DEL_CONTRATO,
+            new MapSqlParameterSource("contratoId", contratoId));
+
+        if (conciliacion != null) {
+            long conciliacionId = numero(conciliacion.get("id")).longValue();
+            BigDecimal esperado = decimal(conciliacion.get("importeEsperado"));
+
+            recalcularConciliacion(conciliacionId, esperado,
+                new MapSqlParameterSource()
+                    .addValue("facturaId", facturaId)
+                    .addValue("contratoId", contratoId)
+                    .addValue("conciliacionId", conciliacionId));
+        }
+    }
+
+    private static boolean mismoTipo(Object anterior, String nuevo) {
+        String a = anterior == null ? "" : anterior.toString().trim().toUpperCase();
+        String n = nuevo == null ? "" : nuevo.trim().toUpperCase();
+        return a.equals(n);
     }
 }
