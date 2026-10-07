@@ -118,7 +118,7 @@ public class MVPTestController {
                     "alicuotaIva", 21.0,
                     "iva", 50243.80,
                     "otrosTributos", 0.00,
-                    "total", 338246.00
+                    "total", 289500.00
                 )
             ),
 
@@ -180,7 +180,7 @@ public class MVPTestController {
                     "alicuotaIva", 21.0,
                     "iva", 74293.80,
                     "otrosTributos", 0.00,
-                    "total", 420786.00
+                    "total", 360000.00
                 )
             ),
 

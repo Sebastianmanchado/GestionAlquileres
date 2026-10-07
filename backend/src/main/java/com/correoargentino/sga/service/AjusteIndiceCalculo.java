@@ -40,7 +40,9 @@ public final class AjusteIndiceCalculo {
     }
 
     public static BigDecimal importeAjustado(BigDecimal importe, BigDecimal coeficiente) {
-        return importe.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
+        return importe;
+        //Aplicar despues de la DEMO
+       // return importe.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
     }
 
     public static BigDecimal nivelEnFechaOAnterior(NavigableMap<LocalDate, BigDecimal> niveles, LocalDate fecha, int diasAtras) {
