@@ -158,7 +158,7 @@ public class InvoiceService {
             camposComunes(factura).addValue("id", id));
 
         if (cambioTipo && contratoActual != null) {
-            desasignar(id, contratoActual);
+            desasignar(id, factura.comprobante(),contratoActual);
             auditar(id, "DESASIGNAR",
                 "Se desasignó por cambio de tipo de factura", SIN_REFERENCIA);
         } else {
@@ -399,7 +399,7 @@ public class InvoiceService {
         return valor == null ? BigDecimal.ZERO : (BigDecimal) valor;
     }
 
-    private void desasignar(long facturaId, long contratoId) {
+    private void desasignar(long facturaId, String comprobante, long contratoId) throws BadRequestException {
 
         MapSqlParameterSource porFactura = new MapSqlParameterSource("facturaId", facturaId);
 
@@ -421,6 +421,8 @@ public class InvoiceService {
                     .addValue("contratoId", contratoId)
                     .addValue("conciliacionId", conciliacionId));
         }
+
+        notificar("La factura '" + comprobante + "' se paso a revision manual.");
     }
 
     private static boolean mismoTipo(Object anterior, String nuevo) {
