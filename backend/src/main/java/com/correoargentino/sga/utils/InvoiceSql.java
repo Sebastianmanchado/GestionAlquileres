@@ -256,4 +256,15 @@ public final class InvoiceSql {
         DELETE FROM conciliacion_factura
         WHERE factura_id = :facturaId
         """;
+
+    public static final String MONTO_PLANIFICADO_DEL_LOCADOR = """
+        SELECT TOP 1
+            fp.monto_esperado        AS montoEsperado,
+            c.tolerancia_importe_pct AS toleranciaPct
+        FROM factura_planificada fp
+        JOIN contrato c ON c.id = fp.contrato_id
+        WHERE fp.contrato_id = :contratoId
+        AND fp.locador_id  = :locadorId
+        ORDER BY fp.id
+        """;
 }

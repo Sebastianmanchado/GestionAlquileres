@@ -464,6 +464,7 @@ DECLARE @rpaJunio BIGINT = (
       @mesesHistoria = 3 -> agrega 2026-04 y 2026-05 como historia
       La factura k de cada período la emite el locador de la planificada k.
       tipo_factura sale del indicador del locador: C1 -> A | C5 -> C
+      Todas las diferencias quedan DENTRO de la tolerancia del contrato.
    ========================================================================= */
 DECLARE @mesesHistoria INT = 1;          -- <<< CAMBIAR A 3 SI QUERES HISTORIA
 
@@ -481,6 +482,7 @@ DELETE FROM @periodos WHERE orden > @mesesHistoria;
 
 DECLARE @c           BIGINT;
 DECLARE @imp         DECIMAL(18,2);
+DECLARE @tol         DECIMAL(9,4);
 DECLARE @cuit        CHAR(11);
 DECLARE @razon       NVARCHAR(200);
 DECLARE @tipoFactura NVARCHAR(3);
@@ -504,14 +506,15 @@ DECLARE @seqBase    INT;
 DECLARE @esConc     BIT;
 DECLARE @impPeriodo DECIMAL(18,2);
 DECLARE @tipoComp   SMALLINT;
-DECLARE @estadoFac  NVARCHAR(40);
+DECLARE @estadoFac  NVARCHAR(40) = N'COINCIDE';
 DECLARE @rpaId      BIGINT;
 DECLARE @seq        INT;
 
 SET @maxOrden = (SELECT MAX(orden) FROM @periodos);
 
 DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
-    SELECT ct.id, ct.inmueble_id, cv.importe_mensual, s.cant_facturas
+    SELECT ct.id, ct.inmueble_id, cv.importe_mensual, s.cant_facturas,
+           ISNULL(ct.tolerancia_importe_pct, 3.0)
     FROM #contratos_seed s
     JOIN contrato ct       ON ct.id = s.contrato_id
     JOIN contrato_valor cv ON cv.contrato_id = ct.id
@@ -519,11 +522,12 @@ DECLARE cur CURSOR LOCAL FAST_FORWARD FOR
     ORDER BY ct.id;
 
 OPEN cur;
-FETCH NEXT FROM cur INTO @c, @inm, @imp, @cantFact;
+FETCH NEXT FROM cur INTO @c, @inm, @imp, @cantFact, @tol;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    -- categoria del periodo conciliado: 0=sin factura, 1=OK, 2=dif <3%, 3=dif >3%
+    -- categoria del periodo conciliado:
+    -- 0=sin factura, 1=OK, 2=dif chica (1,5%), 3=dif cercana al limite (80% de la tolerancia)
     SET @cat = CASE
         WHEN @rownum % 9 = 7 THEN 0
         WHEN @rownum % 4 = 2 THEN 3
@@ -545,20 +549,18 @@ BEGIN
         IF @esConc = 1
         BEGIN
             SET @impPeriodo = CASE @cat
-                WHEN 3 THEN @imp * 0.94
-                WHEN 2 THEN @imp * 0.985
-                ELSE @imp
+                WHEN 3 THEN ROUND(@imp * (1 - (@tol * 0.8) / 100.0), 2)  -- 3% -> 2,4%
+                WHEN 2 THEN ROUND(@imp * 0.985, 2)                       -- 1,5%
+                ELSE @imp                                                -- OK: sin cambios
             END;
 
-            SET @tipoComp  = CASE WHEN @cat = 3 THEN 2 ELSE 1 END;
-            SET @estadoFac = CASE WHEN @cat = 3 THEN N'CON_DIFERENCIA' ELSE N'COINCIDE' END;
-            SET @rpaId     = @rpaJunio;
+            SET @tipoComp = CASE WHEN @cat = 3 THEN 2 ELSE 1 END;
+            SET @rpaId    = @rpaJunio;
         END
         ELSE
         BEGIN
             SET @impPeriodo = @imp;
             SET @tipoComp   = 1;
-            SET @estadoFac  = N'COINCIDE';
             SET @rpaId      = NULL;
         END
 
@@ -636,7 +638,7 @@ BEGIN
     END
 
     SET @rownum = @rownum + 1;
-    FETCH NEXT FROM cur INTO @c, @inm, @imp, @cantFact;
+    FETCH NEXT FROM cur INTO @c, @inm, @imp, @cantFact, @tol;
 END
 
 CLOSE cur;
@@ -661,11 +663,13 @@ VALUES
 
 /* =========================================================================
    6) CONCILIACION DEL PERIODO 2026-06
+      Estados: SIN_FACTURA | OK | OK_CON_DIF
    ========================================================================= */
 DECLARE @concPeriodo DATE = '2026-06-01';
 
 DECLARE @c2         BIGINT;
 DECLARE @esp        DECIMAL(18,2);
+DECLARE @tol2       DECIMAL(9,4);
 DECLARE @fact       DECIMAL(18,2);
 DECLARE @cnt        INT;
 DECLARE @estadoConc NVARCHAR(40);
@@ -673,14 +677,14 @@ DECLARE @concId     BIGINT;
 DECLARE @fid        BIGINT;
 
 DECLARE cur2 CURSOR LOCAL FAST_FORWARD FOR
-    SELECT ct.id, cv.importe_mensual
+    SELECT ct.id, cv.importe_mensual, ISNULL(ct.tolerancia_importe_pct, 3.0)
     FROM contrato ct
     JOIN contrato_valor cv ON cv.contrato_id = ct.id
                           AND cv.vigencia_hasta IS NULL
     ORDER BY ct.id;
 
 OPEN cur2;
-FETCH NEXT FROM cur2 INTO @c2, @esp;
+FETCH NEXT FROM cur2 INTO @c2, @esp, @tol2;
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
@@ -691,10 +695,9 @@ BEGIN
       AND periodo_facturado = @concPeriodo;
 
     SET @estadoConc = CASE
-        WHEN @cnt = 0 THEN N'SIN_FACTURA'
+        WHEN @cnt = 0     THEN N'SIN_FACTURA'
         WHEN @fact = @esp THEN N'OK'
-        WHEN ABS(@fact - @esp) <= @esp * 0.03 THEN N'OK_CON_DIF'
-        ELSE N'CON_DIFERENCIA'
+        ELSE N'OK_CON_DIF'   -- el seed garantiza que el desvío está dentro de la tolerancia
     END;
 
     INSERT INTO conciliacion (
@@ -702,9 +705,7 @@ BEGIN
         estado, revisada_por, revisada_en
     )
     VALUES (
-        @c2, @concPeriodo, @esp, @fact, @estadoConc,
-        CASE WHEN @estadoConc = N'CON_DIFERENCIA' THEN 1 ELSE NULL END,
-        CASE WHEN @estadoConc = N'CON_DIFERENCIA' THEN '2026-06-12T10:41:00' ELSE NULL END
+        @c2, @concPeriodo, @esp, @fact, @estadoConc, NULL, NULL
     );
 
     SET @concId = CONVERT(BIGINT, SCOPE_IDENTITY());
@@ -715,7 +716,7 @@ BEGIN
     WHERE contrato_id = @c2
       AND periodo_facturado = @concPeriodo;
 
-    IF @estadoConc IN (N'CON_DIFERENCIA', N'OK_CON_DIF')
+    IF @estadoConc = N'OK_CON_DIF'
     BEGIN
         SET @fid = NULL;
 
@@ -732,7 +733,8 @@ BEGIN
             )
             VALUES (
                 @concId, @fid, N'IMPORTE',
-                CASE WHEN @estadoConc = N'CON_DIFERENCIA' THEN N'ALTA' ELSE N'BAJA' END,
+                CASE WHEN ABS(@fact - @esp) > @esp * (@tol2 / 2) / 100.0
+                     THEN N'MEDIA' ELSE N'BAJA' END,
                 CAST(@esp AS NVARCHAR(40)), CAST(@fact AS NVARCHAR(40))
             );
 
@@ -751,7 +753,7 @@ BEGIN
         END
     END
 
-    FETCH NEXT FROM cur2 INTO @c2, @esp;
+    FETCH NEXT FROM cur2 INTO @c2, @esp, @tol2;
 END
 
 CLOSE cur2;

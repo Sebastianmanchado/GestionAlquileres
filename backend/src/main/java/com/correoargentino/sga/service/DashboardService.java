@@ -34,7 +34,7 @@ public class DashboardService {
                 "SELECT TOP 1 periodo FROM conciliacion ORDER BY periodo DESC", empty);
         Object periodo = lastConc == null ? null : lastConc.get("periodo");
         MapSqlParameterSource pp = new MapSqlParameterSource("periodo", periodo);
-        int concDiff = periodo == null ? 0 : intOf("SELECT COUNT(*) FROM conciliacion WHERE periodo=:periodo AND estado='CON_DIFERENCIA'", pp);
+        //int concDiff = periodo == null ? 0 : intOf("SELECT COUNT(*) FROM conciliacion WHERE periodo=:periodo AND estado='CON_DIFERENCIA'", pp);
         int concProcesadas = periodo == null ? 0 : intOf("SELECT COUNT(*) FROM conciliacion WHERE periodo=:periodo", pp);
 
         int sinAsignar = intOf("SELECT COUNT(*) FROM factura WHERE estado='SIN_ASIGNAR'");
@@ -50,7 +50,7 @@ public class DashboardService {
         kpi.put("contratosTotales", totales);
         kpi.put("vencen90", vencen90);
         kpi.put("carteraPct", totales == 0 ? 0 : Math.round(vencen90 * 1000.0 / totales) / 10.0);
-        kpi.put("concConDiferencia", concDiff);
+        //kpi.put("concConDiferencia", concDiff);
         kpi.put("concProcesadas", concProcesadas);
         kpi.put("periodo", periodo);
         kpi.put("facturasSinAsignar", sinAsignar);
@@ -97,7 +97,7 @@ public class DashboardService {
         int vencenSemana = intOf("SELECT COUNT(*) FROM contrato c JOIN estado_contrato e ON e.id=c.estado_contrato_id " +
                 "WHERE e.codigo='VIGENTE' AND c.fecha_vencimiento BETWEEN CAST(GETDATE() AS DATE) AND DATEADD(DAY,7,CAST(GETDATE() AS DATE))");
         if (vencenSemana > 0) attention.add(vencenSemana + " contratos vencen esta semana y requieren renovación.");
-        if (concDiff > 0) attention.add(concDiff + " conciliaciones del período con diferencia de importe.");
+        //if (concDiff > 0) attention.add(concDiff + " conciliaciones del período con diferencia de importe.");
         int sinAsignarViejas = intOf("SELECT COUNT(*) FROM factura WHERE estado='SIN_ASIGNAR' AND fecha_emision < DATEADD(DAY,-15,CAST(GETDATE() AS DATE))");
         if (sinAsignarViejas > 0) attention.add(sinAsignarViejas + " facturas siguen sin asignar hace más de 15 días.");
         Map<String, Object> lastErr = repo.queryOne("SELECT TOP 1 fecha_ejecucion AS fecha, facturas_con_error AS err FROM rpa_ejecucion WHERE estado='CON_ERRORES' ORDER BY fecha_ejecucion DESC", empty);
@@ -111,7 +111,7 @@ public class DashboardService {
         if (proxContrato != null) notifs.add(notif("Contrato " + proxContrato.get("nis") + " próximo a vencer.", "Vencimiento " + proxContrato.get("venc")));
         Map<String, Object> unaFactura = repo.queryOne("SELECT TOP 1 cuit_emisor AS cuit FROM factura WHERE estado='SIN_ASIGNAR' ORDER BY id DESC", empty);
         if (unaFactura != null) notifs.add(notif("Factura sin asignar: CUIT " + unaFactura.get("cuit") + ".", "Bandeja de conciliación"));
-        if (concDiff > 0) notifs.add(notif(concDiff + " diferencias detectadas en el período.", "Conciliación"));
+        //if (concDiff > 0) notifs.add(notif(concDiff + " diferencias detectadas en el período.", "Conciliación"));
         if (lastErr != null) notifs.add(notif("Corrida RPA completada con " + lastErr.get("err") + " errores.", "Monitor RPA"));
         out.put("notifications", notifs);
 
