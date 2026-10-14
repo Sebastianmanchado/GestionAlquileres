@@ -22,8 +22,9 @@ export function DetalleContrato({ id }: { id: number }) {
   const [tab, setTab] = useState('general');
   const { data, loading, error, reload } = useAsync<Detail>(() => api.get(`/contracts/${id}`), [id, role]);
 
-  if (loading) return <Loading />;
-  if (error || !data) return <ErrorBox msg={error} />;
+  if (loading && !data) return <Loading />;
+  if (error && !data) return <ErrorBox msg={error} />;
+  if (!data) return <Loading />;
   const d = data;
   console.log(data)
   const est = estadoContrato(d.estadoCodigo, d.estadoNombre);
@@ -61,7 +62,7 @@ export function DetalleContrato({ id }: { id: number }) {
 
       {tab === 'general' && <General key={d.id} d={d} direccion={direccion} />}
       {tab === 'historial' && <Historial d={d} canEdit={meta.canEdit} onSaved={reload} />}
-      {tab === 'facturas' && <Facturas d={d} />}
+      {tab === 'facturas' && <Facturas d={d} onChanged={reload} />}
       {tab === 'cambios' && <Cambios d={d} />}
     </div>
   );
@@ -363,7 +364,126 @@ function Historial({ d, canEdit, onSaved }: { d: Detail; canEdit: boolean; onSav
   );
 }
 
-function Facturas({ d }: { d: Detail }) {
+
+
+// ---------------------------------------------------------------------------
+// Modal de confirmación
+// ---------------------------------------------------------------------------
+function ConfirmModal({
+  open,
+  titulo,
+  children,
+  confirmLabel = 'Confirmar',
+  cancelLabel = 'Cancelar',
+  peligro = false,
+  cargando = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  titulo: string;
+  children: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  peligro?: boolean;
+  cargando?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  // Cerrar con Escape (salvo mientras procesa)
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !cargando) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, cargando, onCancel]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      onClick={() => !cargando && onCancel()}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-titulo"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          ...s.panel,
+          width: 'min(420px, calc(100vw - 32px))',
+          padding: 20,
+          background: '#fff',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+        }}
+      >
+        <div id="confirm-titulo" style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+          {titulo}
+        </div>
+
+        <div style={{ fontSize: 13, color: c.muted, lineHeight: 1.5, marginBottom: 20 }}>
+          {children}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={cargando}
+            style={{
+              padding: '7px 14px',
+              fontSize: 13,
+              borderRadius: 6,
+              border: `1px solid ${c.line}`,
+              background: 'transparent',
+              cursor: cargando ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={cargando}
+            autoFocus
+            style={{
+              padding: '7px 14px',
+              fontSize: 13,
+              borderRadius: 6,
+              border: 'none',
+              background: peligro ? '#b42318' : '#1f6feb',
+              color: '#fff',
+              cursor: cargando ? 'not-allowed' : 'pointer',
+              opacity: cargando ? 0.7 : 1,
+            }}
+          >
+            {cargando ? 'Procesando…' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Facturas del contrato
+// ---------------------------------------------------------------------------
+function Facturas({ d, onChanged }: { d: Detail; onChanged?: () => void }) {
+  const [procesando, setProcesando] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [aConfirmar, setAConfirmar] = useState<any | null>(null);
+
   const groups = new Map<string, any[]>();
   for (const f of d.facturas) {
     const key = String(f.periodo).substring(0, 7);
@@ -371,27 +491,123 @@ function Facturas({ d }: { d: Detail }) {
     groups.get(key)!.push(f);
   }
   const ordered = Array.from(groups.entries()).sort((a, b) => (a[0] < b[0] ? 1 : -1));
-  if (ordered.length === 0) return <div style={{ ...s.panel, padding: 16, fontSize: 12.5, color: c.muted2 }}>Este contrato aún no tiene facturas asociadas.</div>;
+
+  const confirmarDesasignar = async () => {
+    const f = aConfirmar;
+    if (!f) return;
+    console.log(f)
+    setProcesando(f.id);
+    setError(null);
+    try {
+      await api.post<void>(`/invoices/${f.id}/desasignar`, {
+        contratoId: d.id,
+        comprobante: String(f.numero),
+      });
+      setAConfirmar(null);
+      onChanged?.();
+    } catch (err: any) {
+      setAConfirmar(null);
+      setError(`No se pudo desasignar el comprobante ${f.numero}: ${err?.message ?? 'error desconocido'}`);
+    } finally {
+      setProcesando(null);
+    }
+  };
+
+  if (ordered.length === 0)
+    return (
+      <div style={{ ...s.panel, padding: 16, fontSize: 12.5, color: c.muted2 }}>
+        Este contrato aún no tiene facturas asociadas.
+      </div>
+    );
+
   return (
     <div>
+      {error && (
+        <div
+          style={{
+            ...s.panel,
+            padding: '10px 12px',
+            marginBottom: 12,
+            fontSize: 12.5,
+            color: '#b42318',
+            borderColor: '#fecdca',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
       {ordered.map(([key, facturas]) => (
         <div key={key} style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: c.muted }}>{fmtPeriodo(facturas[0].periodo)}</div>
+          <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 6, color: c.muted }}>
+            {fmtPeriodo(facturas[0].periodo)}
+          </div>
           <div style={{ ...s.panel, overflow: 'hidden' }}>
             {facturas.map((f: any, i: number) => {
               const e = estadoFactura(f.estadoCodigo);
+              const ocupado = procesando === f.id;
               return (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 130px 160px', borderTop: i ? `1px solid ${c.line}` : 'none', fontSize: 12.5, alignItems: 'center' }}>
+                <div
+                  key={f.id ?? i}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '110px 1fr 130px 160px 120px',
+                    borderTop: i ? `1px solid ${c.line}` : 'none',
+                    fontSize: 12.5,
+                    alignItems: 'center',
+                  }}
+                >
                   <div style={{ padding: '10px 12px' }}>{dateAr(f.fecha)}</div>
                   <div style={{ padding: '10px 12px' }}>Comprobante {f.numero}</div>
                   <div style={{ padding: '10px 12px' }}>{money(f.importe)}</div>
-                  <div style={{ padding: '10px 12px' }}><Badge label={e.label} tone={e.tone} /></div>
+                  <div style={{ padding: '10px 12px' }}>
+                    <Badge label={e.label} tone={e.tone} />
+                  </div>
+                  <div style={{ padding: '6px 12px', textAlign: 'right' }}>
+                    <button
+                      type="button"
+                      onClick={() => setAConfirmar(f)}
+                      disabled={procesando !== null}
+                      style={{
+                        padding: '5px 10px',
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: `1px solid ${c.line}`,
+                        background: 'transparent',
+                        color: '#b42318',
+                        cursor: procesando !== null ? 'not-allowed' : 'pointer',
+                        opacity: procesando !== null && !ocupado ? 0.5 : 1,
+                      }}
+                    >
+                      {ocupado ? 'Desasignando…' : 'Desasignar'}
+                    </button>
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
       ))}
+
+      <ConfirmModal
+        open={aConfirmar !== null}
+        titulo="Desasignar factura"
+        confirmLabel="Desasignar"
+        peligro
+        cargando={procesando !== null}
+        onCancel={() => setAConfirmar(null)}
+        onConfirm={confirmarDesasignar}
+      >
+        ¿Querés desasignar el comprobante <strong>{aConfirmar?.numero}</strong>
+        {aConfirmar && (
+          <>
+            {' '}por <strong>{money(aConfirmar.importe)}</strong>
+          </>
+        )}
+        ?
+        <br />
+        La factura pasará a revisión manual y se recalculará la conciliación del contrato.
+      </ConfirmModal>
     </div>
   );
 }

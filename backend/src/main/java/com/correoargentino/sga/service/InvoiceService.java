@@ -179,6 +179,34 @@ public class InvoiceService {
         auditar(id, "EDITAR", "Editó la factura", SIN_REFERENCIA);
     }
 
+    @Transactional
+    public void desasignar(long facturaId, String comprobante, long contratoId) throws BadRequestException {
+        requireEdit();
+
+        MapSqlParameterSource porFactura = new MapSqlParameterSource("facturaId", facturaId);
+
+        repo.jdbc().update(InvoiceSql.BORRAR_RELACIONES_DE_FACTURA, porFactura);
+        repo.jdbc().update(InvoiceSql.DESASIGNAR_FACTURA, porFactura);
+
+        // Recalcular la conciliación del contrato que tenía asignado
+        Map<String, Object> conciliacion = repo.queryOne(
+            InvoiceSql.CONCILIACION_DEL_CONTRATO,
+            new MapSqlParameterSource("contratoId", contratoId));
+
+        if (conciliacion != null) {
+            long conciliacionId = numero(conciliacion.get("id")).longValue();
+            BigDecimal esperado = decimal(conciliacion.get("importeEsperado"));
+
+            recalcularConciliacion(conciliacionId, esperado,
+                new MapSqlParameterSource()
+                    .addValue("facturaId", facturaId)
+                    .addValue("contratoId", contratoId)
+                    .addValue("conciliacionId", conciliacionId));
+        }
+
+        notificar("La factura '" + comprobante + "' se paso a revision manual.");
+    }
+
     /** Parámetros compartidos por el INSERT y el UPDATE. */
     private static MapSqlParameterSource camposComunes(FacturaValidada f) {
         return new MapSqlParameterSource()
@@ -468,32 +496,6 @@ public class InvoiceService {
 
     private static BigDecimal decimal(Object valor) {
         return valor == null ? BigDecimal.ZERO : (BigDecimal) valor;
-    }
-
-    private void desasignar(long facturaId, String comprobante, long contratoId) throws BadRequestException {
-
-        MapSqlParameterSource porFactura = new MapSqlParameterSource("facturaId", facturaId);
-
-        repo.jdbc().update(InvoiceSql.BORRAR_RELACIONES_DE_FACTURA, porFactura);
-        repo.jdbc().update(InvoiceSql.DESASIGNAR_FACTURA, porFactura);
-
-        // Recalcular la conciliación del contrato que tenía asignado
-        Map<String, Object> conciliacion = repo.queryOne(
-            InvoiceSql.CONCILIACION_DEL_CONTRATO,
-            new MapSqlParameterSource("contratoId", contratoId));
-
-        if (conciliacion != null) {
-            long conciliacionId = numero(conciliacion.get("id")).longValue();
-            BigDecimal esperado = decimal(conciliacion.get("importeEsperado"));
-
-            recalcularConciliacion(conciliacionId, esperado,
-                new MapSqlParameterSource()
-                    .addValue("facturaId", facturaId)
-                    .addValue("contratoId", contratoId)
-                    .addValue("conciliacionId", conciliacionId));
-        }
-
-        notificar("La factura '" + comprobante + "' se paso a revision manual.");
     }
 
     private static boolean mismoTipo(Object anterior, String nuevo) {
