@@ -204,6 +204,7 @@ public class InvoiceService {
                     .addValue("conciliacionId", conciliacionId));
         }
 
+        auditar(facturaId, "DESASIGNAR", "Se desasigno la factura '"+ comprobante +"'", SIN_REFERENCIA);
         notificar("La factura '" + comprobante + "' se paso a revision manual.");
     }
 
