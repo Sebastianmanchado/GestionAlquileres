@@ -9,7 +9,7 @@ type Dash = {
   kpi: {
     contratosVigentes: number; contratosVencidos: number; contratosTotales: number;
     contratosProximos: number; vencen90: number; carteraPct: number; 
-    /*concConDiferencia: number; */
+    concConDiferencia: number; 
     concProcesadas: number;
     periodo: string; facturasSinAsignar: number; montoMensual: number;
     ultimoIpc: number | null; ultimoIpcPeriodo: string | null;
@@ -49,7 +49,7 @@ export function Dashboard() {
     { label: 'Contratos totales', value: `${k.contratosTotales}`, sub: 'en cartera' },
     { label: 'Contratos vigentes', value: `${k.contratosVigentes}`, sub: 'en estado vigente' },
     { label: 'Vencen en próx. 90 días', value: `${k.vencen90}`, sub: `${k.carteraPct}% de la cartera` },
-    /*{ label: 'Conciliaciones del mes con diferencia', value: `${k.concConDiferencia}`, sub: `de ${k.concProcesadas} procesadas` },*/
+    { label: 'Conciliaciones del mes con diferencia', value: `${k.concConDiferencia}`, sub: `de ${k.concProcesadas} procesadas` },
     { label: 'Facturas pendientes de matchear', value: `${k.facturasSinAsignar}`, sub: 'bandeja sin asignar' },
     { label: 'Monto mensual comprometido', value: money(k.montoMensual), sub: 'período actual' },
     { label: 'Último IPC', value: ipcPct(k.ultimoIpc), sub: k.ultimoIpcPeriodo ? periodo(k.ultimoIpcPeriodo) : 'variación mensual', ipc: true },

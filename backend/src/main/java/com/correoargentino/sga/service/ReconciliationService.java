@@ -158,7 +158,7 @@ public class ReconciliationService {
             String estado : List.of(
                 "OK",
                 "OK_CON_DIF",
-                //"CON_DIFERENCIA",
+                "CON_DIFERENCIA",
                 "SIN_FACTURA"
             )
         ) {
@@ -234,9 +234,8 @@ public class ReconciliationService {
             String estado;
             if (cnt == 0)                                  estado = "SIN_FACTURA";
             else if (facturado.compareTo(esperado) == 0)   estado = "OK";
-            else                                           estado = "OK_CON_DIF";
-            //else if (desvio.compareTo(margen) <= 0)        estado = "OK_CON_DIF";
-            //else                                           estado = "CON_DIFERENCIA";
+            else if (desvio.compareTo(margen) <= 0)        estado = "OK_CON_DIF";
+            else                                           estado = "CON_DIFERENCIA";
 
             MapSqlParameterSource up = new MapSqlParameterSource()
                     .addValue("c", contratoId)
