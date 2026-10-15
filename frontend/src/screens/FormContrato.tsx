@@ -670,21 +670,8 @@ async function save() {
               placeholder="3"
             />
           </F>
-
-          <F label="Tipo de facturación">
-            <select
-              style={{ ...s.input }}
-              value={form.tipoFacturacion ?? 'mensual'}
-              onChange={(e) => set('tipoFacturacion', e.target.value)}
-            >
-              <option value="mensual">Mensual</option>
-              <option value="personalizado">Personalizado</option>
-            </select>
-          </F>
-
-          {form.tipoFacturacion === 'mensual' && (
-            <>
-              <F label="Fecha de inicio">
+          <div style={{visibility:"hidden"}}></div>
+          <F label="Fecha de inicio">
                 <input
                   type="date"
                   style={s.input}
@@ -700,9 +687,7 @@ async function save() {
                   value={form.fechaVencimiento ?? ''}
                   onChange={(e) => set('fechaVencimiento', e.target.value)}
                 />
-              </F>
-            </>
-          )}
+          </F>
         </>
       ),
     },

@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -331,21 +332,52 @@ public class ReconciliationService {
 
         Map<String, Object> factura = repo.queryOne("""
             SELECT TOP 1 f.id, f.numero_comprobante AS numero, f.importe_total AS importe, f.cuit_emisor AS cuit,
-                   f.periodo_facturado AS periodo, f.cae, f.estado AS estadoCodigo, f.archivo_id AS archivoId,
-                   tc.nombre AS tipoComprobante
-              FROM conciliacion_factura cf JOIN factura f ON f.id=cf.factura_id
-              LEFT JOIN tipo_comprobante tc ON tc.id=f.tipo_comprobante_id
-             WHERE cf.conciliacion_id=:id
-             ORDER BY CASE WHEN f.estado='CON_DIFERENCIA' THEN 0 ELSE 1 END, f.id
+                f.periodo_facturado AS periodo, f.cae, f.estado AS estadoCodigo, f.archivo_id AS archivoId,
+                tc.nombre AS tipoComprobante,
+                fp.monto_esperado AS montoEsperado
+            FROM conciliacion_factura cf
+            JOIN conciliacion co ON co.id = cf.conciliacion_id
+            JOIN factura f       ON f.id  = cf.factura_id
+            LEFT JOIN tipo_comprobante tc ON tc.id = f.tipo_comprobante_id
+            OUTER APPLY (
+                SELECT TOP 1 fp.monto_esperado
+                    FROM factura_planificada fp
+                    JOIN locador lo ON lo.id = fp.locador_id
+                WHERE fp.contrato_id = co.contrato_id
+                    AND RTRIM(lo.cuit) = RTRIM(f.cuit_emisor)
+                ORDER BY fp.id
+            ) fp
+            WHERE cf.conciliacion_id = :id
+            ORDER BY
+                -- 1) primero la factura con diferencias registradas
+                CASE WHEN EXISTS (
+                        SELECT 1 FROM conciliacion_diferencia cd
+                        WHERE cd.conciliacion_id = cf.conciliacion_id
+                            AND cd.factura_id      = f.id
+                    ) THEN 0 ELSE 1 END,
+                -- 2) después, la de mayor desvío contra su factura planificada
+                ABS(f.importe_total - ISNULL(fp.monto_esperado, f.importe_total)) DESC,
+                f.id
             """, p);
 
         List<Map<String, Object>> diffFields = new ArrayList<>();
-        Object esperado = conc.get("esperado");
+
+        // Importe: la factura se compara contra su planificada; si no hay, contra el esperado total
+        Object esperado = factura != null && factura.get("montoEsperado") != null
+            ? factura.get("montoEsperado")
+            : conc.get("esperado");
         Object facturado = factura == null ? conc.get("facturado") : factura.get("importe");
         diffFields.add(diff("Importe", fmt(esperado), fmt(facturado), !eq(esperado, facturado)));
+
+        // CUIT: la factura coincide si su CUIT está entre los locadores del contrato
         String cuitContrato = conc.get("locadorCuit") == null ? "—" : conc.get("locadorCuit").toString();
-        String cuitFactura = factura == null ? "—" : String.valueOf(factura.get("cuit"));
-        diffFields.add(diff("CUIT emisor", cuitContrato, cuitFactura, !cuitContrato.equals(cuitFactura)));
+        String cuitFactura  = factura == null || factura.get("cuit") == null
+            ? "—" : factura.get("cuit").toString().trim();
+        boolean cuitCoincide = Arrays.stream(cuitContrato.split(","))
+            .map(String::trim)
+            .anyMatch(c -> c.equals(cuitFactura));
+        diffFields.add(diff("CUIT emisor", cuitContrato, cuitFactura, !cuitCoincide));
+
         String tcContrato = String.valueOf(conc.getOrDefault("contratoTipoComprobante", "—"));
         String tcFactura = factura == null ? "—" : String.valueOf(factura.get("tipoComprobante"));
         diffFields.add(diff("Tipo de comprobante", tcContrato, tcFactura, !tcContrato.equals(tcFactura)));

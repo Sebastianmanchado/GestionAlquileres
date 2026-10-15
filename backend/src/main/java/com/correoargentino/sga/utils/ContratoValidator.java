@@ -37,10 +37,10 @@ public final class ContratoValidator {
         LocalDate inicio = null;
         LocalDate vencimiento = null;
 
-        if (mensual) {
-            inicio = requireDate(body, "fechaInicio", "Fecha de Inicio");
-            vencimiento = requireDate(body, "fechaVencimiento", "Fecha de Vencimiento");
-        }
+        
+        inicio = requireDate(body, "fechaInicio", "Fecha de Inicio");
+        vencimiento = requireDate(body, "fechaVencimiento", "Fecha de Vencimiento");
+        
 
         body.put("localidadId", requireInt(body, "localidadId", "Localidad"));
         body.put("regionId", requireInt(body, "regionId", "Región"));
@@ -69,7 +69,7 @@ public final class ContratoValidator {
             requireLongPositivo(body, "locadorId", "Locador");
         }
 
-        if (mensual && vencimiento.isBefore(inicio)) {
+        if (vencimiento.isBefore(inicio)) {
             throw new BadRequestException(
                 "La fecha de vencimiento no puede ser anterior a la fecha de inicio.");
         }

@@ -1,5 +1,6 @@
 package com.correoargentino.sga.web;
 
+import com.correoargentino.sga.dto.DesasignarFacturaRequest;
 import com.correoargentino.sga.service.DocumentService;
 import com.correoargentino.sga.service.InvoiceService;
 
@@ -8,6 +9,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import jakarta.validation.Valid;
 
 import java.util.List;
 import java.util.Map;
@@ -73,6 +80,24 @@ public class InvoiceController {
                 ));
         }
     }
+
+    @Operation(
+        summary = "Desasignar factura",
+        description = "Quita la factura del contrato, la pasa a revisión manual y recalcula la conciliación del contrato.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "204", description = "Factura desasignada"),
+        @ApiResponse(responseCode = "400", description = "Datos inválidos")
+    })
+    @PostMapping("/{facturaId}/desasignar")
+    public ResponseEntity<Void> desasignar(
+            @Parameter(description = "Id de la factura", example = "120")
+            @PathVariable long facturaId,
+            @Valid @RequestBody DesasignarFacturaRequest request) throws BadRequestException {
+
+        service.desasignar(facturaId, request.comprobante(), request.contratoId());
+        return ResponseEntity.noContent().build();
+    }
+
 
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> update(

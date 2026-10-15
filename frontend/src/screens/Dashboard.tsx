@@ -8,7 +8,9 @@ import { money, mesCorto, periodo } from '../format';
 type Dash = {
   kpi: {
     contratosVigentes: number; contratosVencidos: number; contratosTotales: number;
-    contratosProximos: number; vencen90: number; carteraPct: number; concConDiferencia: number; concProcesadas: number;
+    contratosProximos: number; vencen90: number; carteraPct: number; 
+    concConDiferencia: number; 
+    concProcesadas: number;
     periodo: string; facturasSinAsignar: number; montoMensual: number;
     ultimoIpc: number | null; ultimoIpcPeriodo: string | null;
     ipcActualizadoEn: string | null;

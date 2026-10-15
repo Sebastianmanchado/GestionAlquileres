@@ -177,10 +177,6 @@ public class ContractService {
             new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("importe", importe));
-
-        audit.log(ENTIDAD_CONTRATO, String.valueOf(id), "EDITAR", "Importe mensual", nis,
-            actual == null ? null : actual.toPlainString(),
-            importe.toPlainString());
     }
 
     private BigDecimal importeVigente(long id) {
@@ -309,7 +305,8 @@ public class ContractService {
             throw new BadRequestException(
                 "El contrato no tiene un importe vigente para aplicar el índice.");
         }
-        return actual.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
+        //return actual.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
+        return actual.setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
@@ -759,22 +756,27 @@ public class ContractService {
                 before.get(campo.getKey()), after.get(campo.getKey()), ref);
         }
 
-        // 2) locadores: agregados, quitados y datos modificados
+        // 2) locadores: reemplazos (anterior → nuevo) y datos modificados
         Map<String, Map<String, Object>> locAntes = locadoresPorId(before);
         Map<String, Map<String, Object>> locDespues = locadoresPorId(after);
 
+        List<Map<String, Object>> salientes = new ArrayList<>();
+        List<Map<String, Object>> entrantes = new ArrayList<>();
+
+        // Salientes: estaban antes y ya no están
         for (Map.Entry<String, Map<String, Object>> e : locAntes.entrySet()) {
             if (!locDespues.containsKey(e.getKey())) {
-                registrar(id, "Locador quitado", resumenLocador(e.getValue()), "—", ref);
+                salientes.add(e.getValue());
             }
         }
 
+        // Entrantes y cambios de datos de los que siguen
         for (Map.Entry<String, Map<String, Object>> e : locDespues.entrySet()) {
             Map<String, Object> nuevo = e.getValue();
             Map<String, Object> viejo = locAntes.get(e.getKey());
 
             if (viejo == null) {
-                registrar(id, "Locador agregado", "—", resumenLocador(nuevo), ref);
+                entrantes.add(nuevo);
                 continue;
             }
 
@@ -783,6 +785,14 @@ public class ContractService {
                 registrarSiCambio(id, campo.getValue() + " (" + nombre + ")",
                     viejo.get(campo.getKey()), nuevo.get(campo.getKey()), ref);
             }
+        }
+
+        // Un solo registro por reemplazo: anterior → nuevo
+        int max = Math.max(salientes.size(), entrantes.size());
+        for (int i = 0; i < max; i++) {
+            String anterior = i < salientes.size() ? resumenLocador(salientes.get(i)) : "—";
+            String actual   = i < entrantes.size() ? resumenLocador(entrantes.get(i)) : "—";
+            registrar(id, "Locador", anterior, actual, ref);
         }
     }
 
@@ -793,9 +803,9 @@ public class ContractService {
     @SuppressWarnings("unchecked")
     private Map<String, Map<String, Object>> locadoresPorId(Map<String, Object> detalle) {
 
+        // Porcentaje por locador (sale de las facturas planificadas)
         Map<String, Object> porcentajes = new HashMap<>();
-        Object plan = detalle.get("facturas_planificadas");
-        if (plan instanceof List<?> lista) {
+        if (detalle.get("facturas_planificadas") instanceof List<?> lista) {
             for (Object o : lista) {
                 Map<String, Object> fp = (Map<String, Object>) o;
                 porcentajes.put(texto(fp.get("locadorId")), fp.get("porcentaje"));
@@ -803,16 +813,27 @@ public class ContractService {
         }
 
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
-        Object locs = detalle.get("locadores");
-        if (locs instanceof List<?> lista) {
+        if (detalle.get("locadores") instanceof List<?> lista) {
             for (Object o : lista) {
                 Map<String, Object> l = new HashMap<>((Map<String, Object>) o);
                 String key = texto(l.get("id"));
                 l.put("porcentaje", porcentajes.get(key));
+                l.put("nombreAuditoria", nombreLocador(l));
                 result.put(key, l);
             }
         }
         return result;
+    }
+
+    /** Nombre a mostrar del locador; prueba las claves habituales. */
+    private static String nombreLocador(Map<String, Object> l) {
+        for (String k : List.of("razonSocial", "razon_social", "nombre")) {
+            Object v = l.get(k);
+            if (v != null && !v.toString().isBlank()) {
+                return v.toString();
+            }
+        }
+        return "Locador " + texto(l.get("id"));
     }
 
     private String resumenLocador(Map<String, Object> l) {

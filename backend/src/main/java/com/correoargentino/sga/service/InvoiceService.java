@@ -94,6 +94,11 @@ public class InvoiceService {
     // Alta
     // =====================================================
 
+        /** Tolerancia usada si el contrato no tiene tolerancia_importe_pct cargada. */
+    private static final BigDecimal TOLERANCIA_POR_DEFECTO_PCT = new BigDecimal("3");
+
+    private enum ResultadoAsignacion { ASIGNADA, SIN_COINCIDENCIA, EXCEDE_TOLERANCIA }
+
     @Transactional
     public long create(Map<String, Object> body) throws BadRequestException {
 
@@ -102,14 +107,11 @@ public class InvoiceService {
         FacturaValidada factura = validator.validar(body);
         long id = insertar(factura);
 
-        boolean asignada = autoAsignar(id, factura);
+        ResultadoAsignacion resultado = autoAsignar(id, factura);
 
         auditar(id, "CREAR", "Creó una factura manual", SIN_REFERENCIA);
 
-        if (!asignada) {
-            notificar("La factura de comprobante '" + factura.comprobante()
-                + "' no pudo ser asignada automáticamente.");
-        }
+        notificarSiNoSeAsigno(resultado, factura.comprobante());
         return id;
     }
 
@@ -142,13 +144,68 @@ public class InvoiceService {
 
         FacturaValidada factura = validator.validar(body);
 
+        Map<String, Object> actual = requerir(
+            InvoiceSql.TIPO_Y_CONTRATO_DE_FACTURA,
+            new MapSqlParameterSource("facturaId", id),
+            "Factura no encontrada");
+
+        Long contratoActual = actual.get("contratoId") == null
+            ? null
+            : numero(actual.get("contratoId")).longValue();
+
+        boolean cambioTipo = !mismoTipo(actual.get("tipoFactura"), factura.tipoFactura());
+
         repo.jdbc().update(
             InvoiceSql.UPDATE,
             camposComunes(factura).addValue("id", id));
 
-        autoAsignar(id, factura);
+        if (contratoActual != null && cambioTipo) {
+            desasignar(id, factura.comprobante(), contratoActual);
+            auditar(id, "DESASIGNAR",
+                "Se desasignó por cambio de tipo de factura", SIN_REFERENCIA);
+
+        } else if (contratoActual != null && excedeToleranciaDelContrato(contratoActual, factura)) {
+            desasignar(id, factura.comprobante(), contratoActual);
+            auditar(id, "DESASIGNAR",
+                "Se desasignó porque el importe excede la tolerancia del contrato", SIN_REFERENCIA);
+
+        } else {
+            ResultadoAsignacion resultado = autoAsignar(id, factura);
+            if (contratoActual == null && resultado == ResultadoAsignacion.EXCEDE_TOLERANCIA) {
+                notificarSiNoSeAsigno(resultado, factura.comprobante());
+            }
+        }
 
         auditar(id, "EDITAR", "Editó la factura", SIN_REFERENCIA);
+    }
+
+    @Transactional
+    public void desasignar(long facturaId, String comprobante, long contratoId) throws BadRequestException {
+        requireEdit();
+
+        MapSqlParameterSource porFactura = new MapSqlParameterSource("facturaId", facturaId);
+
+        repo.jdbc().update(InvoiceSql.BORRAR_RELACIONES_DE_FACTURA, porFactura);
+        repo.jdbc().update(InvoiceSql.DESASIGNAR_FACTURA, porFactura);
+
+        // Recalcular la conciliación del contrato que tenía asignado
+        Map<String, Object> conciliacion = repo.queryOne(
+            InvoiceSql.CONCILIACION_DEL_CONTRATO,
+            new MapSqlParameterSource("contratoId", contratoId));
+
+        if (conciliacion != null) {
+            long conciliacionId = numero(conciliacion.get("id")).longValue();
+            BigDecimal esperado = decimal(conciliacion.get("importeEsperado"));
+
+            recalcularConciliacion(conciliacionId, esperado,
+                new MapSqlParameterSource()
+                    .addValue("facturaId", facturaId)
+                    .addValue("contratoId", contratoId)
+                    .addValue("conciliacionId", conciliacionId));
+        }
+
+        auditar(facturaId, "DESASIGNAR", "Se desasigno la factura '"+ comprobante +"'", SIN_REFERENCIA);
+        notificar("La factura '" + comprobante + "' se paso a revision manual.");
     }
 
     /** Parámetros compartidos por el INSERT y el UPDATE. */
@@ -170,18 +227,16 @@ public class InvoiceService {
     // Auto-asignación (compartida por create y update)
     // =====================================================
 
-    private boolean autoAsignar(long facturaId, FacturaValidada factura)
+    private ResultadoAsignacion autoAsignar(long facturaId, FacturaValidada factura)
             throws BadRequestException {
 
         // 1) locador emisor por cuit_emisor
-        Optional<Long> locadorId = unicoId(
-            InvoiceSql.LOCADOR_POR_CUIT,
-            new MapSqlParameterSource("cuit", factura.cuit().trim()));
-
+        Optional<Long> locadorId = locadorEmisor(factura);
         if (locadorId.isEmpty()) {
-            return false;
+            return ResultadoAsignacion.SIN_COINCIDENCIA;
         }
 
+        // 2) contrato vigente del locador en el período
         Optional<Long> contratoId = unicoId(
             InvoiceSql.CONTRATO_VIGENTE_DEL_LOCADOR,
             new MapSqlParameterSource()
@@ -189,15 +244,83 @@ public class InvoiceService {
                 .addValue("periodo", factura.periodo()));
 
         if (contratoId.isEmpty()) {
-            return false;
+            return ResultadoAsignacion.SIN_COINCIDENCIA;
         }
 
+        // 3) tipo de factura según indicador del locador
         if (!tipoFacturaCoincide(contratoId.get(), locadorId.get(), factura.tipoFactura())) {
-            return false;
+            return ResultadoAsignacion.SIN_COINCIDENCIA;
+        }
+
+        // 4) importe dentro de la tolerancia del contrato
+        Optional<Boolean> dentro =
+            dentroDeTolerancia(contratoId.get(), locadorId.get(), factura.total());
+
+        if (dentro.isEmpty()) {
+            return ResultadoAsignacion.SIN_COINCIDENCIA;   // sin factura planificada para el locador
+        }
+        if (!dentro.get()) {
+            return ResultadoAsignacion.EXCEDE_TOLERANCIA;
         }
 
         assign(facturaId, contratoId.get());
-        return true;
+        return ResultadoAsignacion.ASIGNADA;
+    }
+
+    private Optional<Long> locadorEmisor(FacturaValidada factura) {
+        if (factura.cuit() == null || factura.cuit().isBlank()) {
+            return Optional.empty();
+        }
+        return unicoId(
+            InvoiceSql.LOCADOR_POR_CUIT,
+            new MapSqlParameterSource("cuit", factura.cuit().trim()));
+    }
+
+    /**
+     * Compara el total de la factura contra el monto esperado de la factura
+     * planificada del locador emisor, usando contrato.tolerancia_importe_pct.
+     * Vacío si el locador no tiene factura planificada en el contrato.
+     */
+    private Optional<Boolean> dentroDeTolerancia(long contratoId, long locadorId, BigDecimal total) {
+
+        List<Map<String, Object>> filas = repo.jdbc().queryForList(
+            InvoiceSql.MONTO_PLANIFICADO_DEL_LOCADOR,
+            new MapSqlParameterSource()
+                .addValue("contratoId", contratoId)
+                .addValue("locadorId", locadorId));
+
+        if (filas.isEmpty() || filas.get(0).get("montoEsperado") == null) {
+            return Optional.empty();
+        }
+
+        BigDecimal esperado = decimal(filas.get(0).get("montoEsperado"));
+        BigDecimal pct = filas.get(0).get("toleranciaPct") == null
+            ? TOLERANCIA_POR_DEFECTO_PCT
+            : new BigDecimal(filas.get(0).get("toleranciaPct").toString());
+
+        BigDecimal limite = esperado.abs().multiply(pct).movePointLeft(2);
+        BigDecimal desvio = (total == null ? BigDecimal.ZERO : total).subtract(esperado).abs();
+
+        return Optional.of(desvio.compareTo(limite) <= 0);
+    }
+
+    /** true solo si hay datos para evaluar y el importe queda fuera de la tolerancia. */
+    private boolean excedeToleranciaDelContrato(long contratoId, FacturaValidada factura) {
+        return locadorEmisor(factura)
+            .flatMap(locadorId -> dentroDeTolerancia(contratoId, locadorId, factura.total()))
+            .map(dentro -> !dentro)
+            .orElse(false);
+    }
+
+    private void notificarSiNoSeAsigno(ResultadoAsignacion resultado, String comprobante)
+            throws BadRequestException {
+        switch (resultado) {
+            case EXCEDE_TOLERANCIA -> notificar("La factura de comprobante '" + comprobante
+                + "' no se asignó: su importe excede la tolerancia del contrato.");
+            case SIN_COINCIDENCIA -> notificar("La factura de comprobante '" + comprobante
+                + "' no pudo ser asignada automáticamente.");
+            case ASIGNADA -> { }
+        }
     }
 
     /**
@@ -331,18 +454,12 @@ public class InvoiceService {
                 .addValue("estado", estadoDe(cantidad, facturado, esperado)));
     }
 
-    /** SIN_FACTURA · OK · OK_CON_DIF · CON_DIFERENCIA (tolerancia del 3%). */
+    
     private static String estadoDe(int cantidad, BigDecimal facturado, BigDecimal esperado) {
         if (cantidad == 0) {
             return "SIN_FACTURA";
         }
-        if (facturado.compareTo(esperado) == 0) {
-            return "OK";
-        }
-        BigDecimal tolerancia = esperado.abs().multiply(TOLERANCIA);
-        BigDecimal desvio = facturado.subtract(esperado).abs();
-
-        return desvio.compareTo(tolerancia) <= 0 ? "OK_CON_DIF" : "CON_DIFERENCIA";
+        return facturado.compareTo(esperado) == 0 ? "OK" : "OK_CON_DIF";
     }
 
     // =====================================================
@@ -380,5 +497,11 @@ public class InvoiceService {
 
     private static BigDecimal decimal(Object valor) {
         return valor == null ? BigDecimal.ZERO : (BigDecimal) valor;
+    }
+
+    private static boolean mismoTipo(Object anterior, String nuevo) {
+        String a = anterior == null ? "" : anterior.toString().trim().toUpperCase();
+        String n = nuevo == null ? "" : nuevo.trim().toUpperCase();
+        return a.equals(n);
     }
 }

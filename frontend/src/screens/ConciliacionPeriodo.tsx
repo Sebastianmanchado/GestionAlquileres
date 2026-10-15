@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, qs } from '../api';
 import { useApp } from '../context';
 import { c, s } from '../theme';
@@ -47,31 +47,44 @@ export function ConciliacionPeriodo() {
     [periodoSel, role]
   );
 
-  async function run() {
-    setRunning(true);
+  
+  // Período efectivo: el elegido o el que vino del backend
+  const periodo = periodoSel || (data?.periodo ?? '');
 
-    try {
-      await api.post(
-        '/reconciliations/run' +
-          qs({
-            periodo:
-              periodoSel ||
-              (data?.periodo ?? '')
-          })
-      );
+  // Último período ejecutado (evita repetir la misma corrida)
+  const ultimoEjecutado = useRef<string | null>(null);
 
-      setSelectedIds([]);
-      reload();
+  const run = useCallback(
+    async (opts?: { signal?: { cancelado: boolean } }) => {
+      if (!periodo) return;
+      setRunning(true);
+      try {
+        await api.post('/reconciliations/run' + qs({ periodo }));
+        if (opts?.signal?.cancelado) return;
+        ultimoEjecutado.current = periodo;
+        setSelectedIds([]);
+        reload();
+      } catch (e: any) {
+        if (opts?.signal?.cancelado) return;
+        alert('No se pudo ejecutar: ' + (e?.message ?? e));
+      } finally {
+        if (!opts?.signal?.cancelado) setRunning(false);
+      }
+    },
+    [periodo, reload]
+  );
 
-    } catch (e: any) {
-      alert(
-        'No se pudo ejecutar: ' +
-          (e.message ?? e)
-      );
-    } finally {
-      setRunning(false);
-    }
-  }
+  // Ejecuta automáticamente al tener período y cada vez que cambia
+  useEffect(() => {
+    if (!periodo || ultimoEjecutado.current === periodo) return;
+
+    const signal = { cancelado: false };
+    run({ signal });
+
+    return () => {
+      signal.cancelado = true; // si cambia el período o se desmonta, ignora la respuesta vieja
+    };
+  }, [periodo, run]);
 
   function toggleSelected(id: number) {
     setSelectedIds((current) =>
@@ -321,14 +334,8 @@ export function ConciliacionPeriodo() {
                 </div>
               )}
             </div>
-            <button
-              style={s.btnPrimary}
-              disabled={running}
-              onClick={run}
-            >
-              {running
-                ? 'Ejecutando…'
-                : 'Ejecutar conciliación del período'}
+            <button style={s.btnPrimary} disabled={running} onClick={() => run()}>
+              {running ? 'Ejecutando…' : 'Ejecutar conciliación'}
             </button>
           </>
         )}
