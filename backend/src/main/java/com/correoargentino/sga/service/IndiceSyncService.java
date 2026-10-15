@@ -75,7 +75,7 @@ public class IndiceSyncService {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ipc", ipc);
         out.put("icl", icl);
-        out.put("errores", errores);
+        //out.put("errores", errores);
         return out;
     }
 

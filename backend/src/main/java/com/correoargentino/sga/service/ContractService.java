@@ -305,7 +305,8 @@ public class ContractService {
             throw new BadRequestException(
                 "El contrato no tiene un importe vigente para aplicar el índice.");
         }
-        return actual.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
+        //return actual.multiply(coeficiente).setScale(2, RoundingMode.HALF_UP);
+        return actual.setScale(2, RoundingMode.HALF_UP);
     }
 
     /**

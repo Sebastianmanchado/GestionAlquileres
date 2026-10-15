@@ -19,7 +19,7 @@ export function Auditoria() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14, gap: 12 }}>
         <h1 style={{ ...s.h1, flex: 1 }}>Auditoría</h1>
-        <button style={s.btn}>Exportar a Excel</button>
+        
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>

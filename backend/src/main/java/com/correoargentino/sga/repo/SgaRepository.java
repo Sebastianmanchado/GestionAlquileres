@@ -116,9 +116,9 @@ public class SgaRepository {
                c.fecha_vencimiento                    AS vencimiento,
                ec.codigo                              AS estadoCodigo,
                ec.nombre                              AS estadoNombre,
-               loc.propietario                        AS propietario,
-               loc.locadorCuit                        AS locadorCuit,
-               loc.cantidadLocadores                  AS cantidadLocadores
+               lo.razon_social                        AS propietario,
+               lo.cuit                                AS locadorCuit,
+               lo.cantidad_locadores                  AS cantidadLocadores
           FROM contrato c
           JOIN inmueble i          ON i.id = c.inmueble_id
           LEFT JOIN region r       ON r.id = i.region_id
@@ -127,15 +127,15 @@ public class SgaRepository {
           JOIN tipo_contrato tc    ON tc.id = c.tipo_contrato_id
           JOIN estado_contrato ec  ON ec.id = c.estado_contrato_id
           OUTER APPLY (
-              SELECT STRING_AGG(lo.razon_social, ' / ') WITHIN GROUP (ORDER BY lo.id) AS propietario,
-                     STRING_AGG(RTRIM(lo.cuit), ', ')   WITHIN GROUP (ORDER BY lo.id) AS locadorCuit,
-                     COUNT(*)                                                        AS cantidadLocadores
+              SELECT STRING_AGG(lx.razon_social, ' / ') WITHIN GROUP (ORDER BY lx.id) AS razon_social,
+                     STRING_AGG(RTRIM(lx.cuit), ', ')   WITHIN GROUP (ORDER BY lx.id) AS cuit,
+                     COUNT(*)                                                        AS cantidad_locadores
                 FROM contrato_locador cl
-                JOIN locador lo ON lo.id = cl.locador_id
+                JOIN locador lx ON lx.id = cl.locador_id
                WHERE cl.contrato_id = c.id
-          ) loc
+          ) lo
           LEFT JOIN indice_ajuste ia ON ia.id = c.indice_ajuste_id
-         WHERE ec.id <> 4 /*FILTERS*/
+         WHERE 1=1 /*FILTERS*/
         """;
 
     private int recalcularEstadosContrato() {
@@ -238,9 +238,8 @@ public class SgaRepository {
             "     WHERE cl.contrato_id = c.id " +
             ") lo " +
             "LEFT JOIN indice_ajuste ia ON ia.id=c.indice_ajuste_id " +
-            "WHERE ec.id <> :rescindido" + where;
+            "WHERE 1=1" + where;
 
-        p.addValue("rescindido", ESTADO_RESCINDIDO);
 
         Integer total = jdbc.queryForObject("SELECT COUNT(*) " + base, p, Integer.class);
 

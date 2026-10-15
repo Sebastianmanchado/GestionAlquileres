@@ -228,7 +228,7 @@ function General({ d, direccion }: { d: Detail; direccion: string }) {
         <Field label="Inicio" value={dateAr(d.inicio)} />
         <Field label="Vencimiento" value={dateAr(d.vencimiento)} />
         <Field label="Índice de ajuste" value={d.indiceCodigo ? `${d.indiceCodigo} · ${(d.periodicidad ?? '').toLowerCase()}` : '—'} />
-        <Field label="Próximo ajuste" value={textoProximoAjuste(d.proximoAjuste)} />
+        {/*<Field label="Próximo ajuste" value={textoProximoAjuste(d.proximoAjuste)} />*/}
         <Field label="Tolerancia de diferencia permitida" value={d.tolerancia != null ? `±${Number(d.tolerancia)}%` : '—'} />
       </Panel>
 

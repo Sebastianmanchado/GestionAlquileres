@@ -102,7 +102,6 @@ export function Listado() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14, gap: 12 }}>
         <h1 style={{ ...s.h1, flex: 1 }}>Inmuebles y contratos</h1>
-        {tab === 'contratos' && <button style={s.btn}>Exportar a Excel</button>}
         {tab === 'contratos' && meta.canEdit && (
           <button style={s.btnPrimary} onClick={() => navigate({ screen: 'form' })}>+ Nuevo contrato</button>
         )}
@@ -126,7 +125,7 @@ export function Listado() {
             </select>
             <select style={s.select} value={estado} onChange={(e) => { setPage(0); setEstado(e.target.value); }}>
               <option value="">Estado: Todos</option>
-              {cat?.estados.filter((x) => x.codigo !== 'RESCINDIDO' && x.codigo !== 'PROX_VENCER').map((x) => (
+              {cat?.estados.filter((x) => x.codigo !== 'PROX_VENCER').map((x) => (
                 <option key={x.id} value={x.codigo}>{x.nombre}</option>
               ))}
             </select>
@@ -163,6 +162,7 @@ export function Listado() {
                 </div>
                 {data?.rows.map((r) => {
                   const est = estadoContrato(r.estadoCodigo, r.estadoNombre);
+                  const rescindido = r.estadoCodigo === 'RESCINDIDO';
                   return (
                     <div key={r.id} onClick={() => navigate({ screen: 'detalle', id: r.id })}
                       style={{ display: 'grid', gridTemplateColumns: CONTRACT_GRID, borderTop: `1px solid ${c.line}`, fontSize: 12.5, cursor: 'pointer', background: '#fff' }}>
@@ -174,9 +174,13 @@ export function Listado() {
                       <Cell><Badge label={est.label} tone={est.tone} /></Cell>
                       <Cell>{r.propietario}</Cell>
                       <div style={{ ...cellStyle, display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
-                        <a href="#" onClick={(e) => { e.preventDefault(); navigate({ screen: 'detalle', id: r.id }); }}>Ver</a>
-                        {meta.canEdit && <a href="#" onClick={(e) => { e.preventDefault(); navigate({ screen: 'form', id: r.id }); }}>Editar</a>}
-                        {meta.canEdit && <a href="#" onClick={(e) => { e.preventDefault(); setDelTarget(r); }} style={{ color: c.danger }}>Eliminar</a>}
+                        {!rescindido && (
+                          <>
+                            <a href="#" onClick={(e) => { e.preventDefault(); navigate({ screen: 'detalle', id: r.id }); }}>Ver</a>
+                            {meta.canEdit && <a href="#" onClick={(e) => { e.preventDefault(); navigate({ screen: 'form', id: r.id }); }}>Editar</a>}
+                            {meta.canEdit && <a href="#" onClick={(e) => { e.preventDefault(); setDelTarget(r); }} style={{ color: c.danger }}>Eliminar</a>}
+                          </>
+                        )}
                       </div>
                     </div>
                   );
